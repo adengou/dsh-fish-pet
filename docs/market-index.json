@@ -1,0 +1,44 @@
+{
+    "format":  1,
+    "title":  {
+                  "en":  "Da Fei Yu Fish Pet",
+                  "zh":  "大肥鱼桌宠"
+              },
+    "description":  {
+                        "en":  "A desktop AI pet fish for Windows, drawn with PowerShell + WinForms.",
+                        "zh":  "Windows 桌面 AI 宠物鱼：会听、会说、会记事"
+                    },
+    "plugins":  [
+                    {
+                        "name":  "dsh-fish-pet",
+                        "title":  {
+                                      "en":  "Desktop Fish Pet",
+                                      "zh":  "桌面蓝鱼"
+                                  },
+                        "description":  {
+                                            "en":  "A round blue fish living on your Windows desktop. Voice chat, emotions, reminders.",
+                                            "zh":  "住在 Windows 桌面上的蓝鱼：语音对话、情绪表情、定时提醒"
+                                        },
+                        "icon":  "banner.png",
+                        "author":  "adengou",
+                        "homepage":  "https://gitee.com/adengou/dsh-fish-pet",
+                        "repository":  {
+                                           "url":  "https://github.com/adengou/dsh-fish-pet"
+                                       },
+                        "versions":  [
+                                         {
+                                             "version":  "0.2.15",
+                                             "publishTimestamp":  1793497544,
+                                             "source":  {
+                                                            "type":  "git",
+                                                            "url":  "https://github.com/adengou/dsh-fish-pet",
+                                                            "commit":  "807929c9c79b14643cfea6abc5888756e07c9cce"
+                                                        },
+                                             "engines":  {
+                                                             "dsh":  "\u003e=0.2.1"
+                                                         }
+                                         }
+                                     ]
+                    }
+                ]
+}
