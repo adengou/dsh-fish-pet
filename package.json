@@ -1,0 +1,53 @@
+{
+  "name": "dsh-fish-pet",
+  "version": "0.2.15",
+  "description": "Desktop blue fish pet for DeepSeek Harness: per-pixel transparent WinForms window, text chat, and cloud speech-to-text voice conversation.",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "assets",
+    "docs",
+    "tools",
+    "CHANGELOG.md",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "os": [
+    "win32"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/dsh": ">=0.2.1-rc.5"
+  },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "desktop-pet",
+    "voice",
+    "speech-to-text",
+    "winforms"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://gitee.com/adengou/dsh-fish-pet.git"
+  },
+  "homepage": "https://gitee.com/adengou/dsh-fish-pet",
+  "bugs": {
+    "url": "https://gitee.com/adengou/dsh-fish-pet/issues"
+  },
+  "license": "MIT"
+}

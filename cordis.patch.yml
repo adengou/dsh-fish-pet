@@ -1,0 +1,7 @@
+- insert:
+    - id: fish-pet
+      name: dsh-fish-pet
+      config:
+        enabled: true
+        scale: 1
+        speed: 26

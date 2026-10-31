@@ -1,0 +1,37 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  check:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: PowerShell syntax check
+        shell: pwsh
+        run: |
+          $errs = 0
+          foreach ($f in Get-ChildItem assets/*.ps1) {
+            $e = $null; $t = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile($f.FullName, [ref]$t, [ref]$e)
+            if ($e.Count -gt 0) {
+              $errs++
+              Write-Host "::error file=$($f.Name)"
+              $e | ForEach-Object { Write-Host "  L$($_.Extent.StartLineNumber): $($_.Message)" }
+            }
+          }
+          if ($errs -gt 0) { exit 1 }
+          Write-Host "PowerShell scripts OK"
+
+      - name: JS syntax check
+        run: node --check lib/index.js
+
+      - name: package check
+        run: npm pack --dry-run
