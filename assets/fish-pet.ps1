@@ -52,7 +52,7 @@ function Load-Config {
         persona = [ordered]@{ name = '大肥鱼'; nameEn = 'Mia'; dad = '光光'; mom = '丽丽'; birthday = '2026年10月30日'; birthplace = '中国广西北海'; likes = '白饭、被摸头、主人夸它'; dislikes = '被说胖、被冷落、吵'; ownerBirthday = ''; lang = 'auto'; extra = '你说话简短、俏皮、微微傲娇，用中文，称呼用户为"主人"，每次回复不超过30个字，不要用表情符号。' }
         bubble  = [ordered]@{ opacity = 0.15 }
         voice   = [ordered]@{ silenceGate = 1200; boost = 1; engine = 'cloud'; localConf = 0.55 }
-        tts     = [ordered]@{ engine = 'edge'; voice = 'zh-CN-XiaoxiaoNeural'; rate = '+12%'; pitch = '+10Hz'; voiceEn = 'en-US-AvaNeural'; rateEn = '+12%'; pitchEn = '+0Hz' }
+        tts     = [ordered]@{ engine = 'edge'; voice = 'zh-CN-XiaoxiaoNeural'; rate = '+12%'; pitch = '+10Hz'; voiceEn = 'en-US-AnaNeural'; rateEn = '+8%'; pitchEn = '+15Hz' }
     }
     $script:cfg = $def
     try {
