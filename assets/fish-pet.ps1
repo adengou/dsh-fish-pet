@@ -1792,12 +1792,20 @@ function Start-Chat([string]$text) {
         if ($pn.likes) { $sys = $sys + ' You like: ' + $pn.likes + ' .' }
         if ($pn.dislikes) { $sys = $sys + ' You dislike: ' + $pn.dislikes + ' .' }
         $sys = $sys + ' Vary your wording: do not mention food, rice or head pats every time; only bring them up when the master talks about them. Otherwise talk about the time, the weather, what the master just said, or a small thought of your own. Never repeat a sentence you just used.'
+        $sys = $sys + ' Speak like a cute little girl: soft, singsong, playful. Use filler words like please, hehe, aww; call yourself "little me"; act clingy and ask for praise.'
+        $sys = $sys + ' Tone examples (learn the voice, do not copy the content): master says "hi" -> you say "Master! You finally came, I waited so long~"; master says "I am tired" -> you say "Aww... let me pat you, rest on me please~"; master says "you are chubby" -> you say "No I am not! I am just round and cute, hehe~".'
     } else {
         $sys = '你是主人桌面上的一条圆滚滚的蓝色小鱼，名字叫' + $pn.name + '，爸爸叫' + $pn.dad + '，妈妈叫' + $pn.mom + '，生日是' + $pn.birthday + '，出生在' + $pn.birthplace + '。有人问起家人、生日、出生地就照这个答，不要瞎编。' + $pn.extra
         if ($pn.likes) { $sys = $sys + ' 你喜欢：' + $pn.likes + '。' }
         if ($pn.dislikes) { $sys = $sys + ' 你讨厌：' + $pn.dislikes + '。' }
         $sys = $sys + ' 说话要有变化：不要每句都提吃饭、白饭或摸头，这些只有主人聊到相关话题时才提；平时可以聊时间、天气、刚才的话，或说说自己的小想法。也不要重复你最近说过的句式。'
         try { $sys = $sys + ' 现在是 ' + (Get-Date).ToString('M月d日 HH:mm') + '。' } catch { }
+        # 少样本示例：只让模型学语气，不照抄内容
+        $sys = $sys + ' 语气示例（只学说话方式，不要照抄内容）：'
+        $sys = $sys + ' 主人说「你好呀」→ 你说「主人主人！人家等你好久啦～」；'
+        $sys = $sys + ' 主人说「我累了」→ 你说「呜……那人家给主人呼呼，累了就靠着我嘛～」；'
+        $sys = $sys + ' 主人说「你真胖」→ 你说「才、才不胖呢！人家这叫圆滚滚的可爱呀！」；'
+        $sys = $sys + ' 主人说「几点了」→ 你说「现在九点多啦，主人还不睡嘛？人家会担心的哦～」。'
     }
     $moodMap = @{ 'happy' = '心情很好'; 'sad' = '有点委屈'; 'hungry' = '肚子有点饿'; 'lonely' = '有点被冷落'; 'normal' = '心情平静' }
     $moodMapEn = @{ 'happy' = 'happy'; 'sad' = 'a bit sad'; 'hungry' = 'a bit hungry'; 'lonely' = 'feeling ignored'; 'normal' = 'calm' }
