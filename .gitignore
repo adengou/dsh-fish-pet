@@ -1,4 +1,4 @@
-# 杩愯鏃舵暟鎹?
+# 鏉╂劘顢戦弮鑸垫殶閹?
 *.key
 siliconflow.key
 deepseek.key
@@ -10,11 +10,11 @@ state.json
 pet.pid
 *.wav
 
-# 渚濊禆涓庢瀯寤轰骇鐗?
+# 娓氭繆绂嗘稉搴㈢€杞伴獓閻?
 node_modules/
 dist/
 
-# 缂栬緫鍣?/ 绯荤粺
+# 缂傛牞绶崳?/ 缁崵绮?
 .vscode/
 .idea/
 .DS_Store
@@ -25,3 +25,4 @@ desktop.ini
 docs/*.mp4
 __pycache__/
 *.pyc
+*.tgz
