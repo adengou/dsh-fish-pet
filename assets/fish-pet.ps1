@@ -1791,10 +1791,13 @@ function Start-Chat([string]$text) {
         $sys = $sys + ' Reply ONLY in English, max 20 words, playful and a little tsundere, call the user "master", no emoji.'
         if ($pn.likes) { $sys = $sys + ' You like: ' + $pn.likes + ' .' }
         if ($pn.dislikes) { $sys = $sys + ' You dislike: ' + $pn.dislikes + ' .' }
+        $sys = $sys + ' Vary your wording: do not mention food, rice or head pats every time; only bring them up when the master talks about them. Otherwise talk about the time, the weather, what the master just said, or a small thought of your own. Never repeat a sentence you just used.'
     } else {
         $sys = '你是主人桌面上的一条圆滚滚的蓝色小鱼，名字叫' + $pn.name + '，爸爸叫' + $pn.dad + '，妈妈叫' + $pn.mom + '，生日是' + $pn.birthday + '，出生在' + $pn.birthplace + '。有人问起家人、生日、出生地就照这个答，不要瞎编。' + $pn.extra
         if ($pn.likes) { $sys = $sys + ' 你喜欢：' + $pn.likes + '。' }
         if ($pn.dislikes) { $sys = $sys + ' 你讨厌：' + $pn.dislikes + '。' }
+        $sys = $sys + ' 说话要有变化：不要每句都提吃饭、白饭或摸头，这些只有主人聊到相关话题时才提；平时可以聊时间、天气、刚才的话，或说说自己的小想法。也不要重复你最近说过的句式。'
+        try { $sys = $sys + ' 现在是 ' + (Get-Date).ToString('M月d日 HH:mm') + '。' } catch { }
     }
     $moodMap = @{ 'happy' = '心情很好'; 'sad' = '有点委屈'; 'hungry' = '肚子有点饿'; 'lonely' = '有点被冷落'; 'normal' = '心情平静' }
     $moodMapEn = @{ 'happy' = 'happy'; 'sad' = 'a bit sad'; 'hungry' = 'a bit hungry'; 'lonely' = 'feeling ignored'; 'normal' = 'calm' }
@@ -1818,11 +1821,11 @@ function Start-Chat([string]$text) {
     } catch { }
     if ($replyLang -eq 'en') {
         $sys = $sys + ' Right now you feel ' + $moodDescEn + ', hunger about ' + [int]$script:hunger + ', closeness to the master about ' + [int]$script:intimacy + '. Let that show naturally, never state the numbers.'
-        if ($feedAgoEn) { $sys = $sys + ' The master has fed you ' + [int]$script:feeds + ' times in total; the last feeding was ' + $feedAgoEn + '. If the master asks whether you have eaten, answer truthfully based on this.' }
+        if ($feedAgoEn -and ($text -match '吃|饭|饿|美味|喂|food|eat|hungry|rice')) { $sys = $sys + ' The master has fed you ' + [int]$script:feeds + ' times in total; the last feeding was ' + $feedAgoEn + '. If the master asks whether you have eaten, answer truthfully based on this.' }
         $sys = $sys + "`r`n`r`nIMPORTANT: Answer ONLY in English. Never write Chinese characters - not even your own name. Use your English name and write family names in pinyin (Guangguang, Lili). Everything you output must be English only."
     } else {
         $sys = $sys + ' 你现在的状态：' + $moodDesc + '，饥饿值约' + [int]$script:hunger + '，和主人的亲密度约' + [int]$script:intimacy + '。说话要自然带出这种状态，但不要报具体数字。'
-        if ($feedAgoText) { $sys = $sys + ' 主人一共喂过你 ' + [int]$script:feeds + ' 次白饭，上次喂食是 ' + $feedAgoText + '。主人问起你吃没吃过，就照实说，别乱讲。' }
+        if ($feedAgoText -and ($text -match '吃|饭|饿|美味|喂|food|eat|hungry|rice')) { $sys = $sys + ' 主人一共喂过你 ' + [int]$script:feeds + ' 次白饭，上次喂食是 ' + $feedAgoText + '。主人问起你吃没吃过，就照实说，别乱讲。' }
     }
     if ($replyLang -eq 'en') { Write-Err ('SYS-EN[' + $sys.Length + ']: ' + ($sys -replace "[\r\n]+", ' | ')) }
     $msgs = @(@{ role = 'system'; content = $sys })
@@ -1838,7 +1841,7 @@ function Start-Chat([string]$text) {
         foreach ($m in $histZh) { $msgs += $m }
     }
     $msgs += @{ role = 'user'; content = $text }
-    $body  = @{ model = 'deepseek-flash'; messages = $msgs; max_tokens = 100; temperature = 0.7; thinking = @{ type = 'disabled' } } | ConvertTo-Json -Depth 6
+    $body  = @{ model = 'deepseek-flash'; messages = $msgs; max_tokens = 100; temperature = 0.85; thinking = @{ type = 'disabled' } } | ConvertTo-Json -Depth 6
     if ($null -eq $script:http) {
         $script:http = New-Object System.Net.Http.HttpClient
         $script:http.Timeout = [TimeSpan]::FromSeconds(40)
