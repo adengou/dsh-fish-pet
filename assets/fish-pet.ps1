@@ -1759,6 +1759,26 @@ function Get-ReplyLang([string]$userText) {
     return (Get-TextLang $userText)
 }
 
+# ---- 诗词库：随插件发布，任何机器装上都有 ----
+$script:poemData = $null
+function Get-PoemData {
+    if ($script:poemData) { return $script:poemData }
+    try {
+        $f = Join-Path $PSScriptRoot 'data\poems.json'
+        if (-not (Test-Path $f)) { Write-Err 'POEM-DATA-MISSING'; return $null }
+        $script:poemData = ([IO.File]::ReadAllText($f, [Text.Encoding]::UTF8) | ConvertFrom-Json).poems
+        Write-Err ('POEM-LOAD ' + $script:poemData.Count)
+    } catch { Write-Err ('POEM-LOAD-ERR ' + $_.Exception.Message); $script:poemData = $null }
+    return $script:poemData
+}
+function Find-Poem([string]$q) {
+    $all = Get-PoemData
+    if (-not $all -or $all.Count -eq 0) { return $null }
+    foreach ($it in $all) { if ($it.title -and $q.Contains([string]$it.title)) { return $it } }
+    foreach ($it in $all) { if ($it.author -and $q.Contains([string]$it.author)) { return $it } }
+    return $all[(Get-Random -Maximum $all.Count)]
+}
+
 function Start-Chat([string]$text) {
     Write-Err ('CHAT-START busy=' + $script:chatBusy + ' text=' + $text)
     $text = Fix-AsrText $text
@@ -1836,6 +1856,19 @@ function Start-Chat([string]$text) {
         if ($feedAgoText -and ($text -match '吃|饭|饿|美味|喂|food|eat|hungry|rice')) { $sys = $sys + ' 主人一共喂过你 ' + [int]$script:feeds + ' 次白饭，上次喂食是 ' + $feedAgoText + '。主人问起你吃没吃过，就照实说，别乱讲。' }
     }
     if ($replyLang -eq 'en') { Write-Err ('SYS-EN[' + $sys.Length + ']: ' + ($sys -replace "[\r\n]+", ' | ')) }
+    # ---- 诗词模式：命中就注入权威原文，并要求照抄，避免模型编造或记错 ----
+    $poemMode = $false
+    if ($text -match '诗|词|背|吟|诵|赋|poem|verse|recite') {
+        $poem = Find-Poem $text
+        if ($poem) {
+            $poemMode = $true
+            $poemBody = (@($poem.lines) -join '')
+            $poemKind = if ([string]$poem.type -eq 'ci') { '词' } else { '诗' }
+            $sys = $sys + ' 这一轮主人想听' + $poemKind + '。请完整念出《' + $poem.title + '》（' + $poem.dynasty + '·' + $poem.author + '）：' + $poemBody + ' 。必须一字不改照念，不要改写、不要只念一部分；念完再用一句话卖个萌。这一轮不受30字限制。'
+            Write-Err ('POEM-MODE ' + $poem.title + ' ' + $poem.author)
+        }
+    }
+
     $msgs = @(@{ role = 'system'; content = $sys })
     if ($replyLang -eq 'en') {
         # 英文模式只带英文历史，避免被中文上下文带回去
@@ -1849,7 +1882,7 @@ function Start-Chat([string]$text) {
         foreach ($m in $histZh) { $msgs += $m }
     }
     $msgs += @{ role = 'user'; content = $text }
-    $body  = @{ model = 'deepseek-flash'; messages = $msgs; max_tokens = 100; temperature = 0.85; thinking = @{ type = 'disabled' } } | ConvertTo-Json -Depth 6
+    $body  = @{ model = 'deepseek-flash'; messages = $msgs; max_tokens = $(if ($poemMode) { 400 } else { 100 }); temperature = 0.85; thinking = @{ type = 'disabled' } } | ConvertTo-Json -Depth 6
     if ($null -eq $script:http) {
         $script:http = New-Object System.Net.Http.HttpClient
         $script:http.Timeout = [TimeSpan]::FromSeconds(40)
