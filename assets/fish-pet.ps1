@@ -1275,12 +1275,17 @@ function Play-TtsFile([string]$mp3, [string]$voice) {
             try {
                 try { [IO.File]::WriteAllText((Join-Path $DataDir 'asr.talking'), '1') } catch { }
                 if ($null -eq $script:spPlay) { $script:spPlay = New-Object System.Media.SoundPlayer }
+                # 上一段 wav 已播完，此时可以安全删除（Windows 下正在用的文件删不掉）
+                try { if ($script:lastPlayedWav -and $script:lastPlayedWav -ne $mp3 -and (Test-Path $script:lastPlayedWav)) { Remove-Item -LiteralPath $script:lastPlayedWav -Force -ErrorAction SilentlyContinue } } catch { }
+                $script:lastPlayedWav = $mp3
                 $script:spPlay.SoundLocation = $mp3
                 $script:spPlay.Play()
                 $dur = [Math]::Max(0.8, (Get-Item $mp3).Length / 44100.0)
                 $script:playUntil = (Get-Date).AddSeconds($dur + 1.5)
                 $script:speakEndAt = $script:playUntil
                 Write-Err ('TTS-WAV voice=' + $voice + ' file=' + (Get-Item $mp3).Length + ' dur=' + [Math]::Round($dur, 1) + ' direct=1')
+                # 播放的是 WAV，对应的 mp3 已经没用，顺手删掉
+                try { $mp3sib = [IO.Path]::ChangeExtension($mp3, '.mp3'); if ($mp3sib -ne $mp3 -and (Test-Path $mp3sib)) { Remove-Item -LiteralPath $mp3sib -Force -ErrorAction SilentlyContinue } } catch { }
                 return $true
             } catch { Write-Err ('TTS-PLAY-ERR ' + $_.Exception.Message) }
         }
@@ -1503,7 +1508,10 @@ $script:ttsTimer.Add_Tick({
             } catch { $hit = $null }
             # 请求丢失检测：6 秒还没有任何状态记录，按失败处理（会走下面的重试）
             # 超时按文本长度动态给：短句 8 秒，长句最多 30 秒（worker 端并发排队也要算进去）
-            $waitSec = 8 + [Math]::Min(22, [int]($script:ttsSegs[$i].Length * 0.06))
+            $pendingN = 0
+            for ($q3 = 0; $q3 -lt $script:ttsSegReq.Count; $q3++) { if ($script:ttsSegReq[$q3] -and -not $script:ttsSegDone[$q3]) { $pendingN++ } }
+            # 超时 = 基础 8 秒 + 文本长度 + 队列里每个未完成请求 2 秒（并发排队也要算进去）
+            $waitSec = 8 + [Math]::Min(22, [int]($script:ttsSegs[$i].Length * 0.06)) + ($pendingN * 2)
             if (-not $hit -and $script:ttsSegReqAt -and $script:ttsSegReqAt.Count -gt $i -and $script:ttsSegReqAt[$i] -and ((Get-Date) - $script:ttsSegReqAt[$i]).TotalSeconds -gt $waitSec) {
                 Write-Err ('TTS-SEG-TIMEOUT idx=' + $i)
                 $hit = 'TIMEOUT'
@@ -1512,6 +1520,8 @@ $script:ttsTimer.Add_Tick({
                 if ($hit -like ('*' + $rid + ' OK*')) {
                     # worker 返回的是转好的 WAV 路径；解析出来直接播放，主程序不再调 ffmpeg
                     $script:ttsSegOut[$i] = ($hit -replace ('^' + [regex]::Escape($rid) + ' OK '), '').Trim()
+                    # worker 已读完请求文件，删掉避免累积（压测里 460+ 个残留）
+                    try { Remove-Item -LiteralPath (Join-Path $env:TEMP ('fish-tts-req-' + $rid + '.json')) -Force -ErrorAction SilentlyContinue } catch { }
                     $script:ttsSegDone[$i] = $true
                 }
                 else {
