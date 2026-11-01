@@ -27,12 +27,12 @@
                                        },
                         "versions":  [
                                          {
-                                             "version":  "0.2.16",
-                                             "publishTimestamp":  1793562426,
+                                             "version":  "0.2.17",
+                                             "publishTimestamp":  1793564247,
                                              "source":  {
                                                             "type":  "git",
                                                             "url":  "https://github.com/adengou/dsh-fish-pet",
-                                                            "commit":  "20001aaa3a5c84ced9f324525a569d80fbd57f7e"
+                                                            "commit":  "3b9766f1cdcb7b0fa91bdddd61e56eb23228b4ee"
                                                         },
                                              "engines":  {
                                                              "dsh":  "\u003e=0.2.1"
