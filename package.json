@@ -1,6 +1,6 @@
 {
     "name":  "dsh-fish-pet",
-    "version":  "0.2.32",
+    "version":  "0.2.33",
     "description":  "Desktop blue fish pet for DeepSeek Harness: per-pixel transparent WinForms window, text chat, and cloud speech-to-text voice conversation.",
     "type":  "module",
     "main":  "lib/index.js",
@@ -16,7 +16,9 @@
                   "CHANGELOG.md",
                   "cordis.patch.yml",
                   "README.md",
-                  "LICENSE"
+                  "LICENSE",
+                  "!**/__pycache__/**",
+                  "!**/*.pyc"
               ],
     "engines":  {
                     "node":  "\u003e=22"

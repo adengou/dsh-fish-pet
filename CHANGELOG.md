@@ -1,5 +1,9 @@
 ﻿# Changelog
 
+## [0.2.33] - 2026-11-02
+
+### Changed
+- 版本号 0.2.32 → 0.2.33（npm 不允许复用曾发布过的版本号，E409 previously published version）
 ## [0.2.32] - 2026-11-02
 
 ### Added
