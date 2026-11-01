@@ -1,5 +1,16 @@
 ﻿# Changelog
 
+## [0.2.27] - 2026-11-01
+
+### Added
+- **支持 MIDI 曲目**：把任意 .mid 文件放进 %USERPROFILE%\.dsh\fish-pet\midi\，说「弹首<文件名>」就会播放
+  - 新增纯标准库 MIDI 解析器 ssets/midi_render.py（SMF format 0/1、多轨、tempo、和弦混音）
+  - 音准直接来自 MIDI 数据本身，不存在听写误差
+  - 内置简谱与 MIDI 曲目共存，找不到简谱时自动走 MIDI
+- MIDI 与自定义曲目**只在本机**，不进公开仓库，避免版权风险
+
+### Verified
+- 自制测试 MIDI（14 个音）→ MUSIC-GEN MIDI验证曲 → MUSIC-PLAY dur=16.5，与 MIDI 实际时长一致
 ## [0.2.26] - 2026-11-01
 
 ### Fixed

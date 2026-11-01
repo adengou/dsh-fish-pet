@@ -1791,6 +1791,17 @@ function Get-MusicLib {
         $f = Join-Path $PSScriptRoot 'data\melodies.json'
         if (-not (Test-Path $f)) { return $null }
         $script:musicLib = ([IO.File]::ReadAllText($f, [Text.Encoding]::UTF8) | ConvertFrom-Json).songs
+
+        # 目录里的 MIDI 也算曲目：data\midi\*.mid，文件名即曲名
+        try {
+            foreach ($dir2 in @((Join-Path $PSScriptRoot 'data\midi'), (Join-Path $DataDir 'midi'))) {
+                if (Test-Path $dir2) {
+                    foreach ($mf in (Get-ChildItem $dir2 -Filter '*.mid' -File -ErrorAction SilentlyContinue)) {
+                        $script:musicLib = @($script:musicLib) + @([pscustomobject]@{ name = $mf.BaseName; aliases = @(); bpm = 0; lyrics = '''' ; midi = $mf.FullName })
+                    }
+                }
+            }
+        } catch { }
         # 本机自定义曲目（主人自己加的，不进公开仓库）：data\melodies.local.json
         try {
              $lf = Join-Path $DataDir 'melodies.local.json'
@@ -1821,7 +1832,13 @@ function Start-Music([string]$songName) {
     if (-not (Test-Path $gen)) { Show-Bubble '(music generator missing)'; return $false }
     $out = Join-Path $env:TEMP ('fish-music-' + [guid]::NewGuid().ToString('N') + '.wav')
     try {
-        $arg = '"' + $gen + '" --song "' + [string]$song.name + '" --out "' + $out + '" --library "' + (Join-Path $PSScriptRoot 'data\melodies.json') + '"'
+        # 有 MIDI 就用 MIDI 渲染（音准来自 MIDI 本身），否则用内置简谱合成
+        if ($song.midi -and (Test-Path ([string]$song.midi))) {
+            $mr = Join-Path $PSScriptRoot 'midi_render.py'
+            $arg = '"' + $mr + '" --midi "' + [string]$song.midi + '" --out "' + $out + '"'
+        } else {
+            $arg = '"' + $gen + '" --song "' + [string]$song.name + '" --out "' + $out + '" --library "' + (Join-Path $PSScriptRoot 'data\melodies.json') + '"'
+        }
         $script:musicProc = Start-Process -FilePath 'python' -ArgumentList $arg -WindowStyle Hidden -PassThru
         $script:musicOut = $out
         $script:musicAt = Get-Date
