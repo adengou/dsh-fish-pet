@@ -1407,6 +1407,12 @@ function Start-TtsWorker {
         $workerPath = Join-Path (Split-Path -Parent $PSCommandPath) 'tts_worker.py'
         if (-not (Test-Path $workerPath)) { Write-Err 'TTS-WORKER-MISSING'; return $false }
         $psi = New-Object System.Diagnostics.ProcessStartInfo
+        # 把配置里的 ffmpeg 路径传给 worker（worker 用它转码；没配就自己找 PATH）
+        try {
+            $ffCfg = [string]$script:cfg.tts.ffmpeg
+            if (-not $ffCfg) { $ffCfg = (Get-Command 'ffmpeg' -ErrorAction SilentlyContinue).Source }
+            if ($ffCfg) { $psi.EnvironmentVariables['DSH_FISH_FFMPEG'] = $ffCfg }
+        } catch { }
         $psi.FileName = 'python'
         $psi.Arguments = '"' + $workerPath + '"'
         $psi.UseShellExecute = $false
@@ -1465,6 +1471,26 @@ function Speak-Text([string]$text) {
 # 流水线调度：边合成边播
 $script:ttsTimer = New-Object System.Windows.Forms.Timer
 $script:ttsTimer.Interval = 90
+# 从状态文件里取某请求的结果：只认以换行结尾的完整行，避免并发追加时读到半行
+function Get-TtsStatusHit([string]$rid) {
+    try {
+        $path = $script:ttsStatusFile
+        if (-not $path -or -not (Test-Path $path)) { return $null }
+        $fs = [IO.File]::Open($path, 'Open', 'Read', 'ReadWrite')
+        try {
+            $sr = New-Object IO.StreamReader($fs, [Text.Encoding]::UTF8)
+            $all = $sr.ReadToEnd()
+        } finally { try { $sr.Dispose() } catch { }; $fs.Dispose() }
+        if (-not $all) { return $null }
+        $parts = $all -split "`n"
+        $tail = $parts[$parts.Count - 1]
+        if ($tail -ne '') { $parts = $parts[0..($parts.Count - 2)] }   # 末尾没有换行 → 丢弃可能是半行的那条
+        $ping = $parts | Where-Object { $_ -and $_.StartsWith($rid + ' ') } | Select-Object -Last 1
+        if ($ping) { return $ping.TrimEnd("`r") }
+        return $null
+    } catch { return $null }
+}
+
 $script:ttsTimer.Add_Tick({
     # ---- 常驻进程 + 分段流水线 ----
     if ($script:ttsMode -eq 'worker' -and $script:ttsSegs.Count -gt 0) {
@@ -1473,7 +1499,7 @@ $script:ttsTimer.Add_Tick({
             if ($script:ttsSegDone[$i] -or -not $script:ttsSegReq[$i]) { continue }
             $rid = $script:ttsSegReq[$i]
             try {
-                $hit = Get-Content $script:ttsStatusFile -ErrorAction SilentlyContinue | Where-Object { $_ -match ('^' + $rid + ' ') } | Select-Object -Last 1
+                $hit = Get-TtsStatusHit $rid
             } catch { $hit = $null }
             # 请求丢失检测：6 秒还没有任何状态记录，按失败处理（会走下面的重试）
             # 超时按文本长度动态给：短句 8 秒，长句最多 30 秒（worker 端并发排队也要算进去）
@@ -1496,6 +1522,10 @@ $script:ttsTimer.Add_Tick({
                     if (-not $script:ttsRetry[[string]$i]) {
                         # 失败自动重试一次：换新请求 id 再合成
                         $script:ttsRetry[[string]$i] = 1
+                        # 换全新的输出文件：旧请求可能还在跑，共用同一路径会互相覆盖
+                        $script:ttsSegFiles[$i] = Join-Path $env:TEMP ('fish-tts-' + [guid]::NewGuid().ToString('N') + '.mp3')
+                        $script:ttsSegWav[$i] = [IO.Path]::ChangeExtension($script:ttsSegFiles[$i], '.wav')
+                        $script:ttsSegOut[$i] = ''
                         $script:ttsSegReq[$i] = ''
                         $script:ttsSegDone[$i] = $false
                     } else {
