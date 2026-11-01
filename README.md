@@ -193,7 +193,7 @@ powershell -ExecutionPolicy Bypass -File tools\encrypt-keys.ps1
     "likes": "白饭、被摸头、主人夸它",
     "dislikes": "被说胖、被冷落、吵",
     "lang": "auto",
-    "extra": "你说话简短、俏皮、微微傲娇，称呼用户为\"主人\"，每次回复不超过30个字，不要用表情符号。"
+    "extra": "说话简短、俏皮、微微傲娇，称呼用户为\"主人\"，每次回复不超过30个字，不要用表情符号。"
   },
   "bubble": { "opacity": 0.15 },
   "voice": { "silenceGate": 600, "silenceMs": 900, "boost": 1, "engine": "cloud", "localConf": 0.55 },
