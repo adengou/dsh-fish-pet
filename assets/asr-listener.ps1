@@ -1,8 +1,8 @@
 ﻿# asr-listener.ps1 · 云端耳朵（VAD 连续采集版）
 # 一次连续采集，检测到"说完"立刻上传，不再固定切片
 param(
-    [int]$MaxMs = 10000,
-    [int]$SilenceMs = 900,
+    [int]$MaxMs = 8000,
+    [int]$SilenceMs = 700,
     [int]$Boost = 1,
     [int]$SilenceGate = 600
 )
@@ -134,7 +134,9 @@ public class EarVad
                 all.AddRange(buf);
                 if (peakInt > RawPeak) RawPeak = peakInt;
                 if (peakInt < gate) silent += packetMs; else silent = 0;
-                if (silent >= silenceMs && (total - silent) >= 1200) break;
+                // 相邻片段自动合并：短句（有效语音不足 2.5 秒）时放宽断句等待，避免“Hello | MIA”被切成两段
+                int effectiveSilence = ((total - silent) >= 2500) ? silenceMs : Math.Max(silenceMs, 800);
+                if (silent >= effectiveSilence && (total - silent) >= 1200) break;
             }
         }
         ac.Stop();
@@ -242,7 +244,7 @@ while ($true) {
         $pf = Join-Path $DataDir 'asr.pause'
         if (Test-Path $pf) {
             $age = ((Get-Date) - (Get-Item $pf).LastWriteTime).TotalSeconds
-            if ($age -lt 2.5) { Start-Sleep -Milliseconds 200; continue }
+            if ($age -lt 0.6) { Start-Sleep -Milliseconds 200; continue }
         }
 
         if (((Get-Date) - $script:lastFishCheck).TotalSeconds -gt 30) {
@@ -267,15 +269,25 @@ $script:lastFishCheck = Get-Date
         $key = $env:SILICONFLOW_API_KEY
         if (-not $key) { $key = Read-Key 'siliconflow' }
         if ($key) { $key = $key.Trim() }
-        if (-not $key) { Start-Sleep -Seconds 2; continue }
+        # 没 key 不再停摆：本地引擎照常录音，只有云端识别这一步会跳过
 
-        $ok = [EarVad]::Capture($MaxMs, $SilenceGate, $SilenceMs, $Boost, 2)
+        $ok = $false
+        try { $ok = [EarVad]::Capture($MaxMs, $SilenceGate, $SilenceMs, $Boost, 2) }
+        catch {
+            # 没有可用麦克风时不再每 0.8 秒刷一次 asr.err：只提示一次，然后慢速重试
+            if (-not $script:micWarned) {
+                $script:micWarned = $true
+                Add-Content -LiteralPath $OutFile -Value ((Get-Date -Format 'HH:mm:ss') + "`tM`t(没有找到麦克风设备，语音输入先歇着)") -Encoding UTF8
+            }
+            Start-Sleep -Seconds 3
+            continue
+        }
 
         # 录音过程中鱼开口说话（或刚说完）→ 这段是自己的声音，丢掉
         $talkF = Join-Path $DataDir 'asr.talking'
         if (Test-Path $talkF) { continue }
         $pauseF = Join-Path $DataDir 'asr.pause'
-        if ((Test-Path $pauseF) -and (((Get-Date) - (Get-Item $pauseF).LastWriteTime).TotalSeconds -lt 2.0)) { continue }
+        if ((Test-Path $pauseF) -and (((Get-Date) - (Get-Item $pauseF).LastWriteTime).TotalSeconds -lt 0.6)) { continue }
         if (-not $ok) {
             Start-Sleep -Milliseconds 80
             continue
@@ -294,6 +306,14 @@ $script:lastFishCheck = Get-Date
 
         $engine = if ($script:engine) { $script:engine } else { 'auto' }
         $confMin = if ($script:localConf) { $script:localConf } else { 0.55 }
+        # 没 key 时 cloud 退到本机识别，避免整只耳朵空转（只提示一次）
+        if (-not $key -and $engine -eq 'cloud') {
+            $engine = 'local'
+            if (-not $script:keyWarned) {
+                $script:keyWarned = $true
+                Add-Content -LiteralPath $OutFile -Value ((Get-Date -Format 'HH:mm:ss') + "`tK`t(未配置 SiliconFlow key，暂用本机识别；放入 siliconflow.key 后自动切回云端)") -Encoding UTF8
+            }
+        }
         $text = $null
         $via = ''
         if ($engine -ne 'cloud') {
@@ -302,7 +322,7 @@ $script:lastFishCheck = Get-Date
                 if ($engine -eq 'local' -or $lr.conf -ge $confMin) { $text = $lr.text; $via = 'local' }
             }
         }
-        if (-not $text -and $engine -ne 'local') {
+        if (-not $text -and $engine -ne 'local' -and $key) {
             if ($null -eq $script:http) {
                 $script:http = New-Object System.Net.Http.HttpClient
                 $script:http.Timeout = [TimeSpan]::FromSeconds(30)
@@ -316,7 +336,16 @@ $script:lastFishCheck = Get-Date
                 $bc.Headers.ContentType = [System.Net.Http.Headers.MediaTypeHeaderValue]::Parse('audio/wav')
                 $mp.Add($bc, 'file', 'a.wav')
                 $mp.Add((New-Object System.Net.Http.StringContent('Qwen/Qwen3-ASR-1.7B')), 'model')
-            # 不指定 language，交给模型自动判断中英文（指定 zh 时英文会被转成奇怪文字）
+                # 语言锁定：跟随主程序当前语言模式（zh/en）；auto 时保持自动判断
+                $langHint = ''
+                try {
+                    $cj2 = Get-Content -LiteralPath $CfgPath -Raw -ErrorAction Stop | ConvertFrom-Json
+                    if ($cj2.persona -and $cj2.persona.lang) {
+                        $lm = [string]$cj2.persona.lang
+                        if ($lm -eq 'zh' -or $lm -eq 'en') { $langHint = $lm }
+                    }
+                } catch { }
+                if ($langHint) { $mp.Add((New-Object System.Net.Http.StringContent($langHint)), 'language') }
                 $resp = $script:http.PostAsync('https://api.siliconflow.cn/v1/audio/transcriptions', $mp).GetAwaiter().GetResult()
                 $json = $resp.Content.ReadAsStringAsync().GetAwaiter().GetResult()
                 try { $resp.Dispose(); $mp.Dispose() } catch { }

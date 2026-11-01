@@ -53,6 +53,7 @@ function Load-Config {
         bubble  = [ordered]@{ opacity = 0.15 }
         voice   = [ordered]@{ silenceGate = 1200; boost = 1; engine = 'cloud'; localConf = 0.55 }
         tts     = [ordered]@{ engine = 'edge'; voice = 'zh-CN-XiaoxiaoNeural'; rate = '+12%'; pitch = '+10Hz'; voiceEn = 'en-US-AnaNeural'; rateEn = '+8%'; pitchEn = '+15Hz' }
+        ui      = [ordered]@{ lang = 'zh' }
     }
     $script:cfg = $def
     try {
@@ -62,6 +63,7 @@ function Load-Config {
         $j = [IO.File]::ReadAllText($ConfigPath, [Text.Encoding]::UTF8) | ConvertFrom-Json
         if ($j.persona) { foreach ($k in @('name','nameEn','dad','mom','extra','birthday','birthplace','likes','dislikes','ownerBirthday','lang')) { $v = $j.persona.$k; if ($v) { $script:cfg.persona[$k] = [string]$v } } }
         if ($j.bubble -and $j.bubble.opacity) { $script:cfg.bubble.opacity = [double]$j.bubble.opacity }
+        if ($j.ui -and $j.ui.lang) { $script:cfg.ui.lang = [string]$j.ui.lang }
         if ($j.tts) { foreach ($k2 in @('engine','voice','rate','pitch','voiceEn','rateEn','pitchEn')) { $v2 = $j.tts.$k2; if ($v2) { $script:cfg.tts[$k2] = [string]$v2 } } }
         if ($j.voice) {
             if ($j.voice.silenceGate) { $script:cfg.voice.silenceGate = [int]$j.voice.silenceGate }
@@ -90,6 +92,8 @@ $script:ttsVoiceEn = $script:cfg.tts.voiceEn
 $script:ttsRateEn  = $script:cfg.tts.rateEn
 $script:ttsPitchEn = $script:cfg.tts.pitchEn
 $script:langMode   = $script:cfg.persona.lang
+$script:uiLang     = $script:cfg.ui.lang
+if (-not $script:uiLang) { $script:uiLang = 'zh' }
 $script:ttsRate   = $script:cfg.tts.rate
 $script:ttsPitch  = $script:cfg.tts.pitch
 $PidPath   = Join-Path $DataDir 'pet.pid'
@@ -161,6 +165,13 @@ public class FishPetWindow : Form
         // hidden; force it visible and back to the top of the z-order.
         ShowWindow(this.Handle, 5);
         SetWindowPos(this.Handle, (IntPtr)(-1), 0, 0, 0, 0, 0x0001 | 0x0002);
+    }
+
+    public void ReTop()
+    {
+        // 定期抢回最上层：浏览器（尤其 Edge/Chrome 的合成层）刷新时可能把窗口压下去
+        if (!this.Visible) return;
+        SetWindowPos(this.Handle, (IntPtr)(-1), 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010);
     }
 
     public void Push(Bitmap bmp, int x, int y)
@@ -600,7 +611,7 @@ $miTalk   = $menu.Items.Add('开始听我说（麦克风）')
 $miVoice  = $menu.Items.Add('语音朗读：开')
 $miVoiceSet = New-Object System.Windows.Forms.ToolStripMenuItem('换个声音')
 $menu.Items.Add($miVoiceSet) | Out-Null
-$miLang = New-Object System.Windows.Forms.ToolStripMenuItem('语言模式')
+$miChatLang = New-Object System.Windows.Forms.ToolStripMenuItem('聊天语言')
 $langChoices = @(
     @('zh', '中文'),
     @('en', 'English'),
@@ -616,10 +627,31 @@ foreach ($lc in $langChoices) {
         param($s, $e)
         Set-LangMode ([string]$s.Tag) ([string]$s.Text)
     })
-    $miLang.DropDownItems.Add($itL) | Out-Null
+    $miChatLang.DropDownItems.Add($itL) | Out-Null
     $script:langItemMap[[string]$lc[0]] = $itL
 }
-$menu.Items.Add($miLang) | Out-Null
+$menu.Items.Add($miChatLang) | Out-Null
+
+# 界面语言：只影响右键菜单文字，不动聊天语言
+$miUiLang = New-Object System.Windows.Forms.ToolStripMenuItem('界面语言')
+$uiChoices = @(
+    @('zh', '中文'),
+    @('en', 'English')
+)
+$script:uiItemMap = @{}
+foreach ($uc in $uiChoices) {
+    $itU = New-Object System.Windows.Forms.ToolStripMenuItem($uc[1])
+    $itU.Tag = $uc[0]
+    $itU.CheckOnClick = $false
+    $itU.Checked = ([string]$script:uiLang -eq [string]$uc[0])
+    $itU.Add_Click({
+        param($s, $e)
+        Set-UiLang ([string]$s.Tag) ([string]$s.Text)
+    })
+    $miUiLang.DropDownItems.Add($itU) | Out-Null
+    $script:uiItemMap[[string]$uc[0]] = $itU
+}
+$menu.Items.Add($miUiLang) | Out-Null
 $voiceChoices = @(
     @('zh-CN-XiaoyiNeural', '活泼少女·晓伊'),
     @('zh-CN-XiaoxiaoNeural', '温柔姐姐·晓晓'),
@@ -923,9 +955,64 @@ function Show-ReminderList {
     } catch { Write-Err 'REMLIST-ERR' }
 }
 
+# 右键菜单文字随语言切换（中文 / English）
+function Set-MenuItemText($item, [string]$text) {
+    try { if ($null -ne $item) { $item.Text = $text } } catch { }
+}
+function Update-MenuLang {
+    try {
+        $en = ([string]$script:uiLang -eq 'en')
+        if ($en) {
+            Set-MenuItemText $miFeed 'Feed me'
+            Set-MenuItemText $miType 'Type a message'
+            Set-MenuItemText $miTalk 'Start listening (mic)'
+            Set-MenuItemText $miVoice $(if ($script:speakOn) { 'Voice reading: on' } else { 'Voice reading: off' })
+            Set-MenuItemText $miVoiceSet 'Change voice'
+            Set-MenuItemText $miChatLang 'Chat language'
+            Set-MenuItemText $miUiLang 'UI language'
+            try { $script:langItemMap['zh'].Text = 'Chinese'; $script:langItemMap['en'].Text = 'English'; $script:langItemMap['auto'].Text = 'Auto' } catch { }
+            try { $script:uiItemMap['zh'].Text = 'Chinese'; $script:uiItemMap['en'].Text = 'English' } catch { }
+            Set-MenuItemText $miWake $(if ($script:autoOn) { 'Voice standby: on' } else { 'Voice standby: off' })
+            Set-MenuItemText $miChat $(if ($script:chatOn) { 'Voice chat: on' } else { 'Voice chat: off' })
+            Set-MenuItemText $miPause $(if ($script:paused) { 'Resume' } else { 'Rest a while' })
+            Set-MenuItemText $miHome 'Back to corner'
+            Set-MenuItemText $miBigger 'Grow bigger'
+            Set-MenuItemText $miSmall 'Shrink'
+            Set-MenuItemText $miRemind 'Add a reminder...'
+            Set-MenuItemText $miRemindList 'Reminders...'
+            Set-MenuItemText $miClear 'Clear memory...'
+            Set-MenuItemText $miQuit 'Swim away (exit)'
+        } else {
+            Set-MenuItemText $miFeed '喂它一口'
+            Set-MenuItemText $miType '打字说两句'
+            Set-MenuItemText $miTalk '开始听我说（麦克风）'
+            Set-MenuItemText $miVoice $(if ($script:speakOn) { '语音朗读：开' } else { '语音朗读：关' })
+            Set-MenuItemText $miVoiceSet '换个声音'
+            Set-MenuItemText $miChatLang '聊天语言'
+            Set-MenuItemText $miUiLang '界面语言'
+            try { $script:langItemMap['zh'].Text = '中文'; $script:langItemMap['en'].Text = 'English'; $script:langItemMap['auto'].Text = '自动模式' } catch { }
+            try { $script:uiItemMap['zh'].Text = '中文'; $script:uiItemMap['en'].Text = 'English' } catch { }
+            Set-MenuItemText $miWake $(if ($script:autoOn) { '语音待命：开' } else { '语音待命：关' })
+            Set-MenuItemText $miChat $(if ($script:chatOn) { '语音聊天：开' } else { '语音聊天：关（省 token）' })
+            Set-MenuItemText $miPause $(if ($script:paused) { '继续游' } else { '停下歇会儿' })
+            Set-MenuItemText $miHome '回到右下角'
+            Set-MenuItemText $miBigger '长大一点'
+            Set-MenuItemText $miSmall '变小一点'
+            Set-MenuItemText $miRemind '加个提醒…'
+            Set-MenuItemText $miRemindList '提醒清单…'
+            Set-MenuItemText $miClear '清除记忆…'
+            Set-MenuItemText $miQuit '让它游走（退出）'
+        }
+        Set-MenuItemText $miBalance $(if ($en) { 'Balance: --' } else { '余额：--' })
+        try { if ($menu) { $menu.Refresh() } } catch { }
+        Write-Err ('LANG-UI ui=' + [string]$script:uiLang + ' chat=' + [string]$script:langMode + ' feed=' + $miFeed.Text + ' pause=' + $miPause.Text + ' balance=' + $miBalance.Text)
+    } catch { }
+}
+
 # 切换朗读音色（立即生效并写入 config.json）
 # 切换中英文聊天模式（立即生效并写入 config.json）
 function Set-LangMode([string]$mode, [string]$label) {
+    Write-Err ('LANG-SET mode=' + $mode + ' label=' + $label)
     try {
         $script:langMode = $mode
         try {
@@ -950,6 +1037,33 @@ function Set-LangMode([string]$mode, [string]$label) {
         else { Show-Bubble ('语言：' + $label) }
     } catch { Write-Err 'LANG-SET-ERR' }
 }
+
+# 切换界面语言（只影响右键菜单文字，不动聊天语言）
+function Set-UiLang([string]$mode, [string]$label) {
+    try {
+        $script:uiLang = $mode
+        try {
+            $cfg = Join-Path $DataDir 'config.json'
+            if (Test-Path $cfg) {
+                $j = [IO.File]::ReadAllText($cfg, [Text.Encoding]::UTF8) | ConvertFrom-Json
+                if (-not $j.ui) { $j | Add-Member -NotePropertyName ui -NotePropertyValue ([ordered]@{ lang = $mode }) }
+                elseif ($j.ui.PSObject.Properties.Name -notcontains 'lang') { $j.ui | Add-Member -NotePropertyName lang -NotePropertyValue $mode }
+                else { $j.ui.lang = $mode }
+                [IO.File]::WriteAllText($cfg, ($j | ConvertTo-Json -Depth 6), (New-Object Text.UTF8Encoding($false)))
+            }
+        } catch { }
+        try {
+            if ($script:uiItemMap) {
+                foreach ($k in @($script:uiItemMap.Keys)) { $script:uiItemMap[$k].Checked = ([string]$k -eq [string]$mode) }
+            }
+        } catch { }
+        Update-MenuLang
+        Write-Err ('UI-LANG mode=' + $mode)
+    } catch { }
+}
+
+# 启动时按当前界面语言设置一遍菜单文字
+try { Update-MenuLang } catch { }
 
 function Set-TtsVoice([string]$voice, [string]$label) {
     try {
@@ -1060,17 +1174,19 @@ function Show-Input {
 # 取 DeepSeek 余额文本（缓存 60 秒，避免每次开菜单都卡一下）
 function Get-BalanceText {
     if ($script:balCache -and ((Get-Date) - $script:balAt).TotalSeconds -lt 60) { return $script:balCache }
-    $txt = '余额：查询失败'
+    $uiEn = ([string]$script:uiLang -eq 'en')
+    $prefix = if ($uiEn) { 'Balance: ' } else { '余额：' }
+    $txt = $prefix + $(if ($uiEn) { 'query failed' } else { '查询失败' })
     try {
         $k = Get-ApiKey
         if (-not $k) {
-            $txt = '余额：未配置 key'
+            $txt = $prefix + $(if ($uiEn) { 'no key' } else { '未配置 key' })
         } else {
             $r = Invoke-RestMethod -Uri 'https://api.deepseek.com/user/balance' -Headers @{ Authorization = "Bearer $k" } -TimeoutSec 8
             $b = @($r.balance_infos) | Select-Object -First 1
             if ($b) {
                 $sym = switch ([string]$b.currency) { 'CNY' { '¥' } 'USD' { '$' } default { [string]$b.currency + ' ' } }
-                $txt = '余额：' + $sym + $b.total_balance
+                $txt = $prefix + $sym + $b.total_balance
             }
         }
     } catch { }
@@ -1148,18 +1264,30 @@ function Speak-Sapi([string]$text) {
 
 function Play-TtsFile([string]$mp3, [string]$voice) {
     try {
-        if ($null -eq $script:mp) {
-            Add-Type -AssemblyName PresentationCore
-            $script:mp = New-Object System.Windows.Media.MediaPlayer
-            $script:mp.Add_MediaEnded({ Complete-TtsSegment })
-            $script:mp.Add_MediaOpened({
-                try { if ($script:mp.NaturalDuration.HasTimeSpan) { $script:speakEndAt = (Get-Date).AddSeconds($script:mp.NaturalDuration.TimeSpan.TotalSeconds + 0.8) } } catch { }
-            })
+        # WPF MediaPlayer 在 WinForms 消息循环里不会加载（Position 恒 0），改用 ffmpeg 转 WAV + SoundPlayer
+        $ff = 'C:\Users\Lenovo\.local\bin\ffmpeg.exe'
+        if (-not (Test-Path $ff)) { $ff = (Get-Command 'ffmpeg' -ErrorAction SilentlyContinue).Source }
+        if (-not $ff) { Write-Err 'TTS-NO-FFMPEG'; return }
+        $wav = Join-Path $DataDir ('tts-play-' + [guid]::NewGuid().ToString('N') + '.wav')
+        $log = Join-Path $DataDir 'tts-conv.log'
+        try {
+            Start-Process -FilePath $ff -ArgumentList @('-y','-loglevel','error','-i',$mp3,'-af','volume=0.75','-ar','22050','-ac','1',$wav) -WindowStyle Hidden -Wait -RedirectStandardError $log | Out-Null
+        } catch { Write-Err ('TTS-CONV-ERR ' + $_.Exception.Message) }
+        if ((Test-Path $wav) -and (Get-Item $wav).Length -gt 1000) {
+            # 每次播放都强制重新上“正在说话”的锁：TTS 重试/失败分支可能已经把锁清掉了
+            try { [IO.File]::WriteAllText((Join-Path $DataDir 'asr.talking'), '1') } catch { }
+            if ($null -eq $script:spPlay) { $script:spPlay = New-Object System.Media.SoundPlayer }
+            $script:spPlay.SoundLocation = $wav
+            $script:spPlay.Play()
+            $dur = [Math]::Max(0.8, (Get-Item $wav).Length / 44100.0)
+            # 多留 1.5 秒：SoundPlayer 实际出声比调用晚，留够尾巴，避免自己的声音被耳朵拾成回环
+            $script:playUntil = (Get-Date).AddSeconds($dur + 1.5)
+            $script:speakEndAt = $script:playUntil
+            Write-Err ('TTS-WAV voice=' + $voice + ' file=' + (Get-Item $wav).Length + ' dur=' + [Math]::Round($dur, 1))
+        } else {
+            Write-Err ('TTS-CONV-FAIL ' + $mp3)
         }
-        $script:mp.Open([uri]$mp3)
-        $script:mp.Play()
-        Write-Err ('TTS-EDGE voice=' + $voice + ' file=' + (Get-Item $mp3).Length)
-        try { Get-ChildItem $env:TEMP -Filter 'fish-tts-*.mp3' -ErrorAction SilentlyContinue | Where-Object { $_.LastWriteTime -lt (Get-Date).AddMinutes(-10) } | Remove-Item -Force -ErrorAction SilentlyContinue } catch { }
+        try { Get-ChildItem $DataDir -Filter 'tts-play-*.wav' -ErrorAction SilentlyContinue | Where-Object { $_.LastWriteTime -lt (Get-Date).AddMinutes(-3) } | Remove-Item -Force -ErrorAction SilentlyContinue } catch { }
     } catch { Write-Err ('TTS-PLAY-ERR ' + $_.Exception.Message) }
 }
 
@@ -1197,13 +1325,16 @@ function Start-TtsPipeline([string]$text, [string]$voice, [string]$rate, [string
     $script:ttsSegDone = @()
     $script:ttsSegPlayed = @()
     $script:ttsSegReq = @()
+    $script:ttsSegReqAt = @()
     for ($i = 0; $i -lt $script:ttsSegs.Count; $i++) {
         $script:ttsSegFiles += (Join-Path $env:TEMP ('fish-tts-' + [guid]::NewGuid().ToString('N') + '.mp3'))
         $script:ttsSegDone += $false
         $script:ttsSegPlayed += $false
         $script:ttsSegReq += ''
+        $script:ttsSegReqAt += [datetime]::MinValue
     }
     $script:ttsSegPlaying = -1
+    $script:ttsRetry = @{}
     Write-Err ('TTS-PIPE segs=' + $script:ttsSegs.Count + ' len=' + $text.Length)
     $script:ttsTimer.Start()
 }
@@ -1227,6 +1358,9 @@ function Request-TtsSegment([int]$idx) {
         $script:ttsProc.StandardInput.WriteLine('@' + $reqFile)
         $script:ttsProc.StandardInput.Flush()
         $script:ttsSegReq[$idx] = $reqId
+        if ($null -eq $script:ttsSegReqAt) { $script:ttsSegReqAt = @() }
+        while ($script:ttsSegReqAt.Count -le $idx) { $script:ttsSegReqAt += [datetime]::MinValue }
+        $script:ttsSegReqAt[$idx] = Get-Date
         Write-Err ('TTS-REQ idx=' + $idx + ' id=' + $reqId)
     } catch { Write-Err ('TTS-REQ-ERR ' + $_.Exception.Message) }
 }
@@ -1315,9 +1449,27 @@ $script:ttsTimer.Add_Tick({
             try {
                 $hit = Get-Content $script:ttsStatusFile -ErrorAction SilentlyContinue | Where-Object { $_ -match ('^' + $rid + ' ') } | Select-Object -Last 1
             } catch { $hit = $null }
+            # 请求丢失检测：6 秒还没有任何状态记录，按失败处理（会走下面的重试）
+            if (-not $hit -and $script:ttsSegReqAt -and $script:ttsSegReqAt.Count -gt $i -and $script:ttsSegReqAt[$i] -and ((Get-Date) - $script:ttsSegReqAt[$i]).TotalSeconds -gt 6) {
+                Write-Err ('TTS-SEG-TIMEOUT idx=' + $i)
+                $hit = 'TIMEOUT'
+            }
             if ($hit) {
                 if ($hit -like ('*' + $rid + ' OK*')) { $script:ttsSegDone[$i] = $true }
-                else { Write-Err ('TTS-SEG-FAIL idx=' + $i); $script:ttsSegDone[$i] = $true }
+                else {
+                    Write-Err ('TTS-SEG-FAIL idx=' + $i)
+                    # 合成失败也要立刻放开“正在说话”的锁，否则耳朵会被挡住整整一个看门狗周期
+                    $script:speakEndAt = (Get-Date)
+                    if ($null -eq $script:ttsRetry) { $script:ttsRetry = @{} }
+                    if (-not $script:ttsRetry[[string]$i]) {
+                        # 失败自动重试一次：换新请求 id 再合成
+                        $script:ttsRetry[[string]$i] = 1
+                        $script:ttsSegReq[$i] = ''
+                        $script:ttsSegDone[$i] = $false
+                    } else {
+                        $script:ttsSegDone[$i] = $true
+                    }
+                }
             }
         }
         # 2) 没有在播 → 找下一段
@@ -1341,9 +1493,13 @@ $script:ttsTimer.Add_Tick({
                 Request-TtsSegment $next
             }
         } else {
-            # 3) 正在播：预取下一段
-            $nx = $script:ttsSegPlaying + 1
-            if ($nx -lt $script:ttsSegs.Count -and -not $script:ttsSegDone[$nx] -and -not $script:ttsSegReq[$nx]) { Request-TtsSegment $nx }
+            # 3) 正在播：到点视为播完（SoundPlayer 无结束事件），再预取下一段
+            if ($script:playUntil -and (Get-Date) -ge $script:playUntil) {
+                Complete-TtsSegment
+            } else {
+                $nx = $script:ttsSegPlaying + 1
+                if ($nx -lt $script:ttsSegs.Count -and -not $script:ttsSegDone[$nx] -and -not $script:ttsSegReq[$nx]) { Request-TtsSegment $nx }
+            }
         }
         return
     }
@@ -1590,16 +1746,16 @@ function Start-Chat([string]$text) {
     if ($replyLang -eq 'en') {
         # 英文模式只带英文历史，避免被中文上下文带回去
         $histEn = @($script:chatHistory | Where-Object { (Get-TextLang ([string]$_.content)) -eq 'en' -and ([string]$_.content) -notmatch 'Fatty Fish' })
-        if ($histEn.Count -gt 4) { $histEn = $histEn[($histEn.Count - 4)..($histEn.Count - 1)] }
+        if ($histEn.Count -gt 3) { $histEn = $histEn[($histEn.Count - 3)..($histEn.Count - 1)] }
         foreach ($m in $histEn) { $msgs += $m }
     } else {
         # 中文模式只带中文历史，避免被上一段英文带跑
         $histZh = @($script:chatHistory | Where-Object { (Get-TextLang ([string]$_.content)) -eq 'zh' })
-        if ($histZh.Count -gt 10) { $histZh = $histZh[($histZh.Count - 10)..($histZh.Count - 1)] }
+        if ($histZh.Count -gt 4) { $histZh = $histZh[($histZh.Count - 4)..($histZh.Count - 1)] }
         foreach ($m in $histZh) { $msgs += $m }
     }
     $msgs += @{ role = 'user'; content = $text }
-    $body  = @{ model = 'deepseek-flash'; messages = $msgs; max_tokens = 160; temperature = 0.9; thinking = @{ type = 'disabled' } } | ConvertTo-Json -Depth 6
+    $body  = @{ model = 'deepseek-flash'; messages = $msgs; max_tokens = 100; temperature = 0.7; thinking = @{ type = 'disabled' } } | ConvertTo-Json -Depth 6
     if ($null -eq $script:http) {
         $script:http = New-Object System.Net.Http.HttpClient
         $script:http.Timeout = [TimeSpan]::FromSeconds(40)
@@ -1611,7 +1767,7 @@ function Start-Chat([string]$text) {
 }
 
 $script:chatTimer = New-Object System.Windows.Forms.Timer
-$script:chatTimer.Interval = 300
+$script:chatTimer.Interval = 120
 $script:chatTimer.Add_Tick({
     try {
         if ($null -eq $script:chatTask -or -not $script:chatTask.IsCompleted) { return }
@@ -1714,7 +1870,7 @@ $script:menuTimer.Add_Tick({
     try {
         try { foreach ($k in @($script:langItemMap.Keys)) { $script:langItemMap[$k].Checked = ([string]$k -eq [string]$script:langMode) } } catch { }
         try { foreach ($k2 in @($script:voiceItemMap.Keys)) { $script:voiceItemMap[$k2].Checked = ([string]$k2 -eq [string]$script:ttsVoice) } } catch { }
-        $miPause.Text = if ($script:paused) { '继续游' } else { '停下歇会儿' }
+        try { Update-MenuLang } catch { }
         try { $miBalance.Text = Get-BalanceText } catch { }
         $menu.Show($script:menuScreenPt)
     } catch { Write-Err 'MENU-SHOW-ERR' }
@@ -1731,7 +1887,7 @@ $miFeed.Add_Click({ Invoke-Feed })
 $miTalk.Add_Click({ Start-Listen })
 $miWake.Add_Click({
     $script:autoOn = -not $script:autoOn
-    if ($script:autoOn) { Start-Auto; $miWake.Text = '语音待命：开' } else { try { if ($script:rec) { $script:rec.RecognizeAsyncCancel() } } catch { }; BackToWake; $miWake.Text = '语音待命：关' }
+    if ($script:autoOn) { Start-Auto; try { Update-MenuLang } catch { } } else { try { if ($script:rec) { $script:rec.RecognizeAsyncCancel() } } catch { }; BackToWake; try { Update-MenuLang } catch { } }
 })
 $miType.Add_Click({ Show-Input })
 $miRemind.Add_Click({ Show-Reminder })
@@ -1750,7 +1906,7 @@ $miClear.Add_Click({
 })
 $miChat.Add_Click({
     $script:chatOn = -not $script:chatOn
-    $miChat.Text = if ($script:chatOn) { '语音聊天：开' } else { '语音聊天：关（省 token）' }
+    try { Update-MenuLang } catch { }
     if ($script:chatOn) { Start-Ear; Show-Bubble '聊天开啦，我继续听' } else { Stop-Ear; Show-Bubble '聊天先关着，省点 token～' }
 })
 $miBalance.Add_Click({
@@ -1760,7 +1916,7 @@ $miBalance.Add_Click({
 })
 $miVoice.Add_Click({
     $script:speakOn = -not $script:speakOn
-    $miVoice.Text = if ($script:speakOn) { '语音朗读：开' } else { '语音朗读：关' }
+    try { Update-MenuLang } catch { }
     if (-not $script:speakOn -and $script:synth) { try { $script:synth.SpeakAsyncCancelAll() } catch { } }
 })
 $miPause.Add_Click({
@@ -1800,6 +1956,12 @@ $timer.Add_Tick({
     try {
         $dt = 0.033
         $script:t += $dt
+
+        # TTS 常驻进程预热：第一次对话前把 python worker 拉起来，避免冷启动失败
+        if (-not $script:ttsWarmed) {
+            $script:ttsWarmed = $true
+            try { Start-TtsWorker | Out-Null } catch { }
+        }
 
         # 启动 3 秒后自报家门，让人知道它在听
         if (-not $script:greeted -and $script:t -gt 3) {
@@ -1897,7 +2059,7 @@ $timer.Add_Tick({
         $script:hearts = $heartsAlive
 
         # 读后台耳朵的识别结果（每 0.5 秒一次，只读新增部分，不再整文件重读）
-        $script:asrPoll = ([int]$script:asrPoll + 1) % 9
+        $script:asrPoll = ([int]$script:asrPoll + 1) % 5
         if ($script:asrPoll -eq 0 -and -not $script:chatBusy) {
             foreach ($ln in (Read-NewAsrLines)) {
                 $parts = $ln -split "`t"
@@ -1906,6 +2068,8 @@ $timer.Add_Tick({
                         $script:lastHeardBubble = Get-Date
                         Show-Bubble '我在听…'
                     }
+                } elseif ($parts.Count -ge 2 -and $parts[1] -eq 'M') {
+                    Show-Bubble '我没找到麦克风，插一个再叫我'
                 } elseif ($parts.Count -ge 2 -and $parts[1] -eq '?') {
                     if (-not $script:chatBusy) { Show-Bubble '（没听清，再说一遍嘛）' }
                 } elseif ($parts.Count -ge 3 -and $parts[1] -eq '1') {
@@ -1917,12 +2081,18 @@ $timer.Add_Tick({
                     }
                     $lastR = [string]$script:lastReply
                     $echo = $false
-                    if ($lastR.Length -ge 6 -and $text.Length -ge 6) {
-                        $head = $text.Substring(0, 6)
-                        if ($lastR.Contains($head)) { $echo = $true }
+                    # 回环过滤：只认“识别文本是回复的一段”或“开头 6 个字完全相同”，避免把主人的正常提问误杀
+                    $nt = ($text -replace '[\s\p{P}\p{S}]', '')
+                    $nr = ($lastR -replace '[\s\p{P}\p{S}]', '')
+                    if ($nt.Length -ge 3 -and $nr.Length -ge 3) {
+                        if ($nr.Contains($nt) -or $nt.Contains($nr)) { $echo = $true }
+                        elseif ($nt.Length -ge 6 -and $nr.Length -ge 6 -and $nt.Substring(0, 6) -eq $nr.Substring(0, 6)) { $echo = $true }
                     }
                     $cool = (-not $script:lastReplyAt) -or (((Get-Date) - $script:lastReplyAt).TotalSeconds -gt 3)
                     $long = $text.Length -ge 3
+                    if ($text.Length -ge 1 -and ($dup -or $echo -or (-not $script:chatOn) -or (-not $long))) {
+                        Write-Err ('SKIP dup=' + $dup + ' echo=' + $echo + ' chatOn=' + $script:chatOn + ' long=' + $long + ' text=' + $text)
+                    }
                     if ($text.Length -ge 1 -and -not $dup -and -not $echo -and $script:chatOn -and $long) {
                         if ($cool) { $script:lastReplyAt = Get-Date; Start-Chat $text; break }
                         else { $script:chatPending = $text; break }
@@ -1955,17 +2125,32 @@ $timer.Add_Tick({
             Show-Bubble '没装 Python/edge-tts，先用本机声音；装好后能换少女音'
         }
 
+        # 缺 SiliconFlow key 时提示一次（否则鱼会“假装在听”）
+        if (-not $script:keyWarn -and $script:t -gt 5 -and $script:chatOn) {
+            $script:keyWarn = $true
+            $hasKey = [bool]$env:SILICONFLOW_API_KEY
+            if (-not $hasKey) { try { $hasKey = [bool](Read-Key 'siliconflow') } catch { } }
+            if (-not $hasKey) {
+                Show-Bubble '没找到硅基流动钥匙，先用本机耳朵听，识别会吃亏些'
+            }
+        }
+
         # 说完之后再恢复收音（否则会听见自己说话，自己跟自己聊）
         if ($script:speakEndAt -and (Get-Date) -ge $script:speakEndAt) {
             try { Remove-Item -LiteralPath (Join-Path $DataDir 'asr.talking') -Force -ErrorAction SilentlyContinue } catch { }
             try { [IO.File]::WriteAllText((Join-Path $DataDir 'asr.pause'), (Get-Date).ToString('o')) } catch { }
             $script:speakEndAt = $null
+            # 鱼一说完立刻亮“在听…”，告诉主人可以开口
+            if ($script:chatOn -and -not $script:chatBusy) {
+                $script:lastIdleHint = Get-Date
+                Show-Bubble '在听…（说吧）'
+            }
         }
-        # 看门狗：收音开关卡住（超过 25 秒还没关）就强制恢复，避免鱼彻底听不见
+        # 看门狗：只在没有播放计时（合成失败/丢失回调）时兜底释放，避免把正在播放的锁提前解开
         $tkFile = Join-Path $DataDir 'asr.talking'
         if (Test-Path $tkFile) {
             $tkAge = ((Get-Date) - (Get-Item $tkFile).LastWriteTime).TotalSeconds
-            if ($tkAge -gt 25) {
+            if (-not $script:speakEndAt -and $tkAge -gt 12) {
                 try { Remove-Item -LiteralPath $tkFile -Force -ErrorAction SilentlyContinue } catch { }
                 $script:speakEndAt = $null
                 Write-Err ('TALKING-WATCHDOG age=' + [int]$tkAge)
@@ -1998,10 +2183,10 @@ $timer.Add_Tick({
             } catch { }
         }
 
-        # 空闲时常驻“在听…”，回复后 8 秒内让位给回复气泡
+        # 空闲时常驻“在听…”，回复后 3 秒内让位给回复气泡
         if ($script:chatOn -and -not $script:chatBusy -and -not (Test-Path (Join-Path $DataDir 'asr.talking'))) {
-            $quiet = (-not $script:lastReplyAt) -or (((Get-Date) - $script:lastReplyAt).TotalSeconds -gt 8)
-            $due = (-not $script:lastIdleHint) -or (((Get-Date) - $script:lastIdleHint).TotalSeconds -gt 4)
+            $quiet = (-not $script:lastReplyAt) -or (((Get-Date) - $script:lastReplyAt).TotalSeconds -gt 3)
+            $due = (-not $script:lastIdleHint) -or (((Get-Date) - $script:lastIdleHint).TotalSeconds -gt 3)
             if ($quiet -and $due) {
                 $script:lastIdleHint = Get-Date
                 Show-Bubble '在听…'
@@ -2010,6 +2195,10 @@ $timer.Add_Tick({
 
         # 气泡到期就收
         if ($script:bubble -and $script:bubble.Visible -and (Get-Date) -gt $script:bubbleUntil) { $script:bubble.Hide() }
+
+        # 每 ~2 秒抢回最上层，避免被浏览器等窗口压住（33ms×60）
+        $script:topCheck += 1
+        if ($script:topCheck % 60 -eq 0) { try { $form.ReTop() } catch { } }
 
         # 画画
         Draw-Fish -g $g -t $script:t -dir $script:dir -scale $script:scale -pulse $script:pulse -blink $blink -mood 0 -expr $script:mood
