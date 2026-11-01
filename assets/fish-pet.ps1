@@ -1887,9 +1887,39 @@ function Stop-Music {
     } catch { return $false }
 }
 
+function Test-MusicBusy {
+    try {
+        if ($script:musicProc -and -not $script:musicProc.HasExited) { return $true }
+        if ($script:musicUntil -and (Get-Date) -lt $script:musicUntil) { return $true }
+    } catch { }
+    return $false
+}
+$script:musicQueue = @()   # 弹奏期间收到的对话，弹完再处理
+function Request-Music([string]$songName) {
+    # 正在弹或正在合成时，排队而不是打断
+    if (Test-MusicBusy) {
+        $script:musicQueue = @($script:musicQueue) + @($songName)
+        Show-Bubble '这首还没弹完，排后面去～'
+        Write-Err ('MUSIC-DEFER ' + $songName)
+        return $true
+    }
+    return (Start-Music $songName)
+}
+
+
 function Start-Chat([string]$text) {
     Write-Err ('CHAT-START busy=' + $script:chatBusy + ' text=' + $text)
     $text = Fix-AsrText $text
+
+    # 曲子没弹完不打断：先排队，弹完再处理（"别弹/停止"除外）
+    if (Test-MusicBusy) {
+        if ($text -notmatch '别弹|不要弹|停止|安静|闭嘴|$stop|[Ss]top') {
+            $script:musicQueue = @($script:musicQueue) + @($text)
+            Show-Bubble '人家还在弹呢，等弹完再理你～'
+            Write-Err ('MUSIC-DEFER ' + $text)
+            return
+        }
+    }
     if ($text -match '记住|别忘了|提醒我|答应我|约定') {
         # 问句不算交代，别把"我们约定过什么"记成便签
         if ($text -notmatch '[？?]' -and $text -notmatch '什么|哪件事|哪一个|是不是|吗') { Save-Note $text (Get-DueFromText $text) }
@@ -2231,6 +2261,14 @@ $timer.Add_Tick({
         # 弹琴：子进程跑完且文件够大才播
         if ($script:musicOut -and $script:musicProc) {
             try { if ($script:musicProc.HasExited) { Finish-Music } } catch { $script:musicOut = $null; $script:musicProc = $null }
+
+        # 弹完了，处理排队中的对话（不打断正在进行的聊天）
+        if ($script:musicQueue.Count -gt 0 -and -not (Test-MusicBusy) -and -not $script:chatBusy) {
+            $nextText = [string]$script:musicQueue[0]
+            $script:musicQueue = @($script:musicQueue | Select-Object -Skip 1)
+            Write-Err ('MUSIC-RESUME ' + $nextText)
+            try { Start-Chat $nextText } catch { }
+        }
         }
 
         # 脉动回归
@@ -2334,7 +2372,7 @@ $timer.Add_Tick({
                         if (Stop-Music) { break }
                     }
                     if ($text -match '弹|演奏|唱首|唱个|来首曲子|music|play') {
-                        if (Start-Music $text) { break }
+                        if (Request-Music $text) { break }
                     }
                     $dup = $false
                     if ($text.Length -ge 1) {
@@ -2489,14 +2527,14 @@ $timer.Start()
 try {
     $miMusic.DropDownItems.Clear() | Out-Null
     $rndItem = New-Object System.Windows.Forms.ToolStripMenuItem('随便弹一首')
-    $rndItem.Add_Click({ try { $all = Get-MusicLib; if ($all -and $all.Count -gt 0) { $pk = $all[(Get-Random -Maximum $all.Count)]; Start-Music $pk.name | Out-Null } } catch { } })
+    $rndItem.Add_Click({ try { $all = Get-MusicLib; if ($all -and $all.Count -gt 0) { $pk = $all[(Get-Random -Maximum $all.Count)]; Request-Music $pk.name | Out-Null } } catch { } })
     $miMusic.DropDownItems.Add($rndItem) | Out-Null
     $miMusic.DropDownItems.Add((New-Object System.Windows.Forms.ToolStripSeparator)) | Out-Null
     $songCount = 0
     foreach ($sg in @(Get-MusicLib)) {
         if (-not $sg) { continue }
         $one = New-Object System.Windows.Forms.ToolStripMenuItem([string]$sg.name)
-        $one.Add_Click({ param($snd, $ev) try { Start-Music $snd.Text | Out-Null } catch { } })
+        $one.Add_Click({ param($snd, $ev) try { Request-Music $snd.Text | Out-Null } catch { } })
         $miMusic.DropDownItems.Add($one) | Out-Null
         $songCount++
     }
