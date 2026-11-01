@@ -1,4 +1,4 @@
-﻿r"""把乐谱合成成 WAV，供桌面鱼播放。
+r"""把乐谱合成成 WAV，供桌面鱼播放。
 
 用法：
   python music_gen.py --song 小星星 --out C:\temp\music.wav [--library melodies.json] [--list]
@@ -35,6 +35,7 @@ def note_to_freq(name):
 
 
 def render_note(freq, ms, vol=0.32):
+    '''带衰减包络与轻揉弦的音色：长音不会像风琴一样平拖'''
     n = int(SR * ms / 1000)
     if n <= 0:
         return b''
@@ -42,17 +43,28 @@ def render_note(freq, ms, vol=0.32):
         return b'\x00\x00' * n
     buf = bytearray(n * 2)
     attack = max(1, int(SR * 0.008))
-    release = max(1, int(SR * 0.06))
+    release = max(1, int(SR * 0.09))
+    sustain = 0.55           # 衰减到 55% 后维持
+    decay_end = max(1, int(n * 0.45))
+    vib_rate = 5.2           # 揉弦 5.2Hz
+    vib_depth = 0.0045       # 音高抖动 0.45%
+    phase = 0.0
     for i in range(n):
-        phase = (i * freq / SR) % 1.0
-        tri = 4 * abs(phase - 0.5) - 1          # 三角波，像八音盒
-        sine = math.sin(2 * math.pi * phase)     # 叠一点正弦增厚度
+        t = i / SR
+        f = freq * (1.0 + vib_depth * math.sin(2 * math.pi * vib_rate * t))
+        phase += f / SR
+        if phase >= 1.0:
+            phase -= 1.0
+        tri = 4 * abs(phase - 0.5) - 1
+        sine = math.sin(2 * math.pi * phase)
         mix = 0.75 * tri + 0.25 * sine
-        env = 1.0
         if i < attack:
             env = i / attack
-        elif i > n - release:
-            env = max(0.0, (n - i) / release)
+        else:
+            d = min(1.0, (i - attack) / float(decay_end))
+            env = 1.0 - (1.0 - sustain) * d
+        if i > n - release:
+            env *= max(0.0, (n - i) / float(release))
         v = int(vol * env * mix * 32767)
         v = max(-32767, min(32767, v))
         buf[2 * i] = v & 0xFF
@@ -87,6 +99,8 @@ def synth(song, out_path):
         name = item[0]
         beats = float(item[1]) if len(item) > 1 else 1.0
         ms = beat_ms * beats
+        if ms > 1200:
+            ms = ms * 0.85
         chunks.append(render_note(note_to_freq(name), ms))
         chunks.append(b'\x00\x00' * int(SR * gap_ms / 1000))
     data = b''.join(chunks)

@@ -2098,6 +2098,9 @@ $form.Add_MouseUp({
     }
 })
 # 右键菜单：延迟到鼠标事件之后再弹出，避免"闪退"（事件循环里 Show 会被立刻关掉）
+$script:menuHold = $false   # 菜单打开期间冻结游动与置顶
+$menu.Add_Closed({ $script:menuHold = $false; try { if ($script:menuResume) { $timer.Start(); $script:menuResume = $false } } catch { }; Write-Err 'MENU-CLOSED' })
+$script:menuResume = $false
 $script:menuTimer = New-Object System.Windows.Forms.Timer
 $script:menuTimer.Interval = 120
 $script:menuTimer.Add_Tick({
@@ -2108,11 +2111,14 @@ $script:menuTimer.Add_Tick({
         try { Update-MenuLang } catch { }
         try { $miBalance.Text = Get-BalanceText } catch { }
         $menu.Show($script:menuScreenPt)
-    } catch { Write-Err 'MENU-SHOW-ERR' }
+    } catch { Write-Err 'MENU-SHOW-ERR'; try { if ($script:menuResume) { $timer.Start(); $script:menuResume = $false }; $script:menuHold = $false } catch { } }
 })
 $form.Add_MouseUp({
     param($s, $e)
     if ($e.Button -eq [System.Windows.Forms.MouseButtons]::Right) {
+        $script:menuHold = $true
+        if ($timer.Enabled) { $timer.Stop(); $script:menuResume = $true }
+        Write-Err 'MENU-HOLD-ON'
         $script:menuScreenPt = [System.Windows.Forms.Cursor]::Position
         $script:menuTimer.Start()
     }
@@ -2231,7 +2237,7 @@ $timer.Add_Tick({
         if ($script:pulse -gt 1.0) { $script:pulse = [Math]::Max(1.0, $script:pulse - $dt * 0.55) }
 
         # 游动：随机目标点，平滑靠近（不叠加额外抖动）
-        if (-not $script:paused -and -not $script:dragging -and -not $menu.Visible) {
+        if (-not $script:paused -and -not $script:dragging -and -not $menu.Visible -and -not $script:menuHold) {
             $maxTX = [Math]::Max(20, $wa.Right - $W - 10)
             $maxTY = [Math]::Max(20, $wa.Bottom - $H - 10)
             if ($null -eq $script:tx) { $script:tx = Get-Random -Minimum 10 -Maximum $maxTX; $script:ty = Get-Random -Minimum 10 -Maximum $maxTY }
@@ -2462,7 +2468,7 @@ $timer.Add_Tick({
 
         # 每 ~2 秒抢回最上层，避免被浏览器等窗口压住（33ms×60）
         $script:topCheck += 1
-        if ($script:topCheck % 60 -eq 0) { try { $form.ReTop() } catch { } }
+        if ($script:topCheck % 60 -eq 0 -and -not $menu.Visible -and -not $script:menuHold) { try { $form.ReTop() } catch { } }
 
         # 画画
         Draw-Fish -g $g -t $script:t -dir $script:dir -scale $script:scale -pulse $script:pulse -blink $blink -mood 0 -expr $script:mood
