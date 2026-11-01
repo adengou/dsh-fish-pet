@@ -606,10 +606,11 @@ $script:chatOn = $true
 # ---------- 菜单 ----------
 $menu = New-Object System.Windows.Forms.ContextMenuStrip
 $miFeed   = $menu.Items.Add('喂它一口')
-$miMusic  = $menu.Items.Add('弹首曲子')
+$miMusic  = New-Object System.Windows.Forms.ToolStripMenuItem('弹首曲子')
+$menu.Items.Add($miMusic) | Out-Null
+                    # 子项在脚本末尾（函数定义齐全之后）一次性建好，避免展开时崩溃
 $miMusicStop = $menu.Items.Add('停止弹奏')
 $miMusicStop.Add_Click({ try { Stop-Music | Out-Null } catch { } })
-$miMusic.Add_Click({ try { $all = Get-MusicLib; if ($all -and $all.Count -gt 0) { $pick = $all[(Get-Random -Maximum $all.Count)]; Start-Music $pick.name | Out-Null } } catch { } })
 $miType = $menu.Items.Add('打字说两句')
 $miTalk   = $menu.Items.Add('开始听我说（麦克风）')
 $miVoice  = $menu.Items.Add('语音朗读：开')
@@ -2478,4 +2479,22 @@ $timer.Add_Tick({
 
 $form.Add_FormClosing({ $timer.Stop(); $script:chatTimer.Stop(); Save-State; Remove-Item -LiteralPath $PidPath -Force -ErrorAction SilentlyContinue })
 $timer.Start()
+# 填充「弹首曲子」子菜单（此处所有函数已定义，安全）
+try {
+    $miMusic.DropDownItems.Clear() | Out-Null
+    $rndItem = New-Object System.Windows.Forms.ToolStripMenuItem('随便弹一首')
+    $rndItem.Add_Click({ try { $all = Get-MusicLib; if ($all -and $all.Count -gt 0) { $pk = $all[(Get-Random -Maximum $all.Count)]; Start-Music $pk.name | Out-Null } } catch { } })
+    $miMusic.DropDownItems.Add($rndItem) | Out-Null
+    $miMusic.DropDownItems.Add((New-Object System.Windows.Forms.ToolStripSeparator)) | Out-Null
+    $songCount = 0
+    foreach ($sg in @(Get-MusicLib)) {
+        if (-not $sg) { continue }
+        $one = New-Object System.Windows.Forms.ToolStripMenuItem([string]$sg.name)
+        $one.Add_Click({ param($snd, $ev) try { Start-Music $snd.Text | Out-Null } catch { } })
+        $miMusic.DropDownItems.Add($one) | Out-Null
+        $songCount++
+    }
+    Write-Err ('MUSIC-MENU ' + $songCount)
+} catch { Write-Err ('MUSIC-MENU-ERR ' + $_.Exception.Message) }
+
 [System.Windows.Forms.Application]::Run($form)
