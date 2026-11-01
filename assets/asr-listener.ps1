@@ -75,7 +75,9 @@ public class EarVad
         if (en.GetDefaultAudioEndpoint(1, role, out dev) != 0) { if (en.GetDefaultAudioEndpoint(1, 0, out dev) != 0) return false; }
         Guid iid = typeof(IVadClient).GUID; object o; dev.Activate(ref iid, 1, IntPtr.Zero, out o);
         var ac = (IVadClient)o;
-        IntPtr fmt; ac.GetMixFormat(out fmt);
+        IntPtr fmt;
+        int hrFmt = ac.GetMixFormat(out fmt);
+        if (hrFmt != 0 || fmt == IntPtr.Zero) return false;
         int rate = Marshal.ReadInt32(fmt, 4);
         short ch = Marshal.ReadInt16(fmt, 2);
         if (ac.Initialize(0, 0, 5000000, 0, fmt, IntPtr.Zero) != 0) return false;
@@ -86,7 +88,7 @@ public class EarVad
         var all = new List<float>();
         var pre = new List<float>();
         bool started = false;
-        int silent = 0, total = 0;
+        int silent = 0, total = 0, voiced = 0;
         var b4 = new byte[4];
         var end = DateTime.UtcNow.AddMilliseconds(maxMs + 1500);
 
@@ -133,10 +135,10 @@ public class EarVad
             {
                 all.AddRange(buf);
                 if (peakInt > RawPeak) RawPeak = peakInt;
-                if (peakInt < gate) silent += packetMs; else silent = 0;
+                if (peakInt < gate) { silent += packetMs; } else { silent = 0; voiced += packetMs; }
                 // 相邻片段自动合并：短句（有效语音不足 2.5 秒）时放宽断句等待，避免“Hello | MIA”被切成两段
-                int effectiveSilence = ((total - silent) >= 2500) ? silenceMs : Math.Max(silenceMs, 800);
-                if (silent >= effectiveSilence && (total - silent) >= 1200) break;
+                int effectiveSilence = (voiced >= 2500) ? silenceMs : Math.Max(silenceMs, 800);
+                if (silent >= effectiveSilence && voiced >= 1200) break;
             }
         }
         ac.Stop();
@@ -240,7 +242,14 @@ while ($true) {
         Rotate-Log $OutFile
         Rotate-Log $LevelFile
 
-        if (Test-Path (Join-Path $DataDir 'asr.talking')) { Start-Sleep -Milliseconds 200; continue }
+        $talkf = Join-Path $DataDir 'asr.talking'
+        if (Test-Path $talkf) {
+            $tAge = ((Get-Date) - (Get-Item $talkf).LastWriteTime).TotalSeconds
+            if ($tAge -lt 30) { Start-Sleep -Milliseconds 200; continue }
+            # 锁残留（鱼被杀时留下的）：超过 30 秒自动清理，否则耳朵会永久装死
+            try { Remove-Item -LiteralPath $talkf -Force -ErrorAction SilentlyContinue } catch { }
+            try { Add-Content -LiteralPath $ErrFile -Value ((Get-Date -Format 'HH:mm:ss') + '  talking-lock stale, cleared') -Encoding UTF8 } catch { }
+        }
         $pf = Join-Path $DataDir 'asr.pause'
         if (Test-Path $pf) {
             $age = ((Get-Date) - (Get-Item $pf).LastWriteTime).TotalSeconds

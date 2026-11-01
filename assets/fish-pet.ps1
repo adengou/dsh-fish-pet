@@ -52,7 +52,7 @@ function Load-Config {
         persona = [ordered]@{ name = '大肥鱼'; nameEn = 'Mia'; dad = '光光'; mom = '丽丽'; birthday = '2026年10月30日'; birthplace = '中国广西北海'; likes = '白饭、被摸头、主人夸它'; dislikes = '被说胖、被冷落、吵'; ownerBirthday = ''; lang = 'auto'; extra = '你说话简短、俏皮、微微傲娇，用中文，称呼用户为"主人"，每次回复不超过30个字，不要用表情符号。' }
         bubble  = [ordered]@{ opacity = 0.15 }
         voice   = [ordered]@{ silenceGate = 1200; boost = 1; engine = 'cloud'; localConf = 0.55 }
-        tts     = [ordered]@{ engine = 'edge'; voice = 'zh-CN-XiaoxiaoNeural'; rate = '+12%'; pitch = '+10Hz'; voiceEn = 'en-US-AnaNeural'; rateEn = '+8%'; pitchEn = '+15Hz' }
+        tts     = [ordered]@{ engine = 'edge'; voice = 'zh-CN-XiaoxiaoNeural'; rate = '+12%'; pitch = '+10Hz'; voiceEn = 'en-US-AnaNeural'; rateEn = '+8%'; pitchEn = '+15Hz'; ffmpeg = '' }
         ui      = [ordered]@{ lang = 'zh' }
     }
     $script:cfg = $def
@@ -64,7 +64,7 @@ function Load-Config {
         if ($j.persona) { foreach ($k in @('name','nameEn','dad','mom','extra','birthday','birthplace','likes','dislikes','ownerBirthday','lang')) { $v = $j.persona.$k; if ($v) { $script:cfg.persona[$k] = [string]$v } } }
         if ($j.bubble -and $j.bubble.opacity) { $script:cfg.bubble.opacity = [double]$j.bubble.opacity }
         if ($j.ui -and $j.ui.lang) { $script:cfg.ui.lang = [string]$j.ui.lang }
-        if ($j.tts) { foreach ($k2 in @('engine','voice','rate','pitch','voiceEn','rateEn','pitchEn')) { $v2 = $j.tts.$k2; if ($v2) { $script:cfg.tts[$k2] = [string]$v2 } } }
+        if ($j.tts) { foreach ($k2 in @('engine','voice','rate','pitch','voiceEn','rateEn','pitchEn','ffmpeg')) { $v2 = $j.tts.$k2; if ($v2) { $script:cfg.tts[$k2] = [string]$v2 } } }
         if ($j.voice) {
             if ($j.voice.silenceGate) { $script:cfg.voice.silenceGate = [int]$j.voice.silenceGate }
             if ($j.voice.boost) { $script:cfg.voice.boost = [int]$j.voice.boost }
@@ -692,10 +692,15 @@ function Save-State {
     $obj = [ordered]@{
         x = [int]$script:x; y = [int]$script:y; dir = [int]$script:dir
         scale = [Math]::Round($script:scale, 3); feeds = [int]$script:feeds
-    hunger = [Math]::Round($script:hunger, 1); intimacy = [Math]::Round($script:intimacy, 1)
-    mood = [string]$script:mood; seen = (Get-Date).ToString('o'); lastFeedAt = $script:lastFeedAtStr
+        hunger = [Math]::Round($script:hunger, 1); intimacy = [Math]::Round($script:intimacy, 1)
+        mood = [string]$script:mood; seen = (Get-Date).ToString('o'); lastFeedAt = $script:lastFeedAtStr
     }
-    try { ($obj | ConvertTo-Json -Compress) | Set-Content -Path $StatePath -Encoding UTF8 } catch { }
+    # 原子写：先写 .tmp 再替换，避免被强杀时留下半截 JSON
+    try {
+        $tmpState = $StatePath + '.tmp'
+        ($obj | ConvertTo-Json -Compress) | Set-Content -Path $tmpState -Encoding UTF8
+        Move-Item -LiteralPath $tmpState -Destination $StatePath -Force
+    } catch { }
 }
 
 function Invoke-Feed {
@@ -857,7 +862,7 @@ function Read-Key([string]$name) {
     return $null
 }
 function Get-ApiKey {
-    if ($env:DEEPSEEK_API_KEY) { return $env:DEEPSEEK_API_KEY }
+    if ($env:DEEPSEEK_API_KEY) { return ([string]$env:DEEPSEEK_API_KEY).Trim() }
     $kk = Read-Key 'deepseek'
     if ($kk) { return $kk }
     try {
@@ -1265,9 +1270,9 @@ function Speak-Sapi([string]$text) {
 function Play-TtsFile([string]$mp3, [string]$voice) {
     try {
         # WPF MediaPlayer 在 WinForms 消息循环里不会加载（Position 恒 0），改用 ffmpeg 转 WAV + SoundPlayer
-        $ff = 'C:\Users\Lenovo\.local\bin\ffmpeg.exe'
-        if (-not (Test-Path $ff)) { $ff = (Get-Command 'ffmpeg' -ErrorAction SilentlyContinue).Source }
-        if (-not $ff) { Write-Err 'TTS-NO-FFMPEG'; return }
+        $ff = [string]$script:cfg.tts.ffmpeg
+        if (-not $ff) { $ff = (Get-Command 'ffmpeg' -ErrorAction SilentlyContinue).Source }
+        if (-not $ff) { Write-Err 'TTS-NO-FFMPEG'; return $false }
         $wav = Join-Path $DataDir ('tts-play-' + [guid]::NewGuid().ToString('N') + '.wav')
         $log = Join-Path $DataDir 'tts-conv.log'
         try {
@@ -1284,8 +1289,10 @@ function Play-TtsFile([string]$mp3, [string]$voice) {
             $script:playUntil = (Get-Date).AddSeconds($dur + 1.5)
             $script:speakEndAt = $script:playUntil
             Write-Err ('TTS-WAV voice=' + $voice + ' file=' + (Get-Item $wav).Length + ' dur=' + [Math]::Round($dur, 1))
+            return $true
         } else {
             Write-Err ('TTS-CONV-FAIL ' + $mp3)
+            return $false
         }
         try { Get-ChildItem $DataDir -Filter 'tts-play-*.wav' -ErrorAction SilentlyContinue | Where-Object { $_.LastWriteTime -lt (Get-Date).AddMinutes(-3) } | Remove-Item -Force -ErrorAction SilentlyContinue } catch { }
     } catch { Write-Err ('TTS-PLAY-ERR ' + $_.Exception.Message) }
@@ -1485,7 +1492,9 @@ $script:ttsTimer.Add_Tick({
                 $file = $script:ttsSegFiles[$next]
                 if ((Test-Path $file) -and (Get-Item $file).Length -gt 800) {
                     $script:ttsSegPlaying = $next
-                    Play-TtsFile $file $script:ttsVoiceUsed
+                    $ok = Play-TtsFile $file $script:ttsVoiceUsed
+                    # playback failure must reset the pipeline, otherwise TTS stays busy forever
+                    if (-not $ok) { Complete-TtsSegment }
                 } else {
                     $script:ttsSegPlayed[$next] = $true
                 }
@@ -1494,7 +1503,7 @@ $script:ttsTimer.Add_Tick({
             }
         } else {
             # 3) 正在播：到点视为播完（SoundPlayer 无结束事件），再预取下一段
-            if ($script:playUntil -and (Get-Date) -ge $script:playUntil) {
+            if ((-not $script:playUntil) -or ((Get-Date) -ge $script:playUntil)) {
                 Complete-TtsSegment
             } else {
                 $nx = $script:ttsSegPlaying + 1
@@ -1688,6 +1697,7 @@ function Start-Chat([string]$text) {
     $key = Get-ApiKey
     if (-not $key) { Show-Bubble '我没有钥匙，打不开话匣子…'; return }
     $script:chatBusy = $true
+    $script:chatBusyAt = Get-Date
     $script:lastUser = $text
     Show-Bubble '…'
     $pn = $script:cfg.persona
@@ -2070,6 +2080,9 @@ $timer.Add_Tick({
                     }
                 } elseif ($parts.Count -ge 2 -and $parts[1] -eq 'M') {
                     Show-Bubble '我没找到麦克风，插一个再叫我'
+                } elseif ($parts.Count -ge 2 -and $parts[1] -eq 'K') {
+                    Show-Bubble '（没配硅基流动 key，先用本机耳朵听）'
+                    if (-not $script:keyWarn) { $script:keyWarn = $true }
                 } elseif ($parts.Count -ge 2 -and $parts[1] -eq '?') {
                     if (-not $script:chatBusy) { Show-Bubble '（没听清，再说一遍嘛）' }
                 } elseif ($parts.Count -ge 3 -and $parts[1] -eq '1') {
@@ -2085,7 +2098,9 @@ $timer.Add_Tick({
                     $nt = ($text -replace '[\s\p{P}\p{S}]', '')
                     $nr = ($lastR -replace '[\s\p{P}\p{S}]', '')
                     if ($nt.Length -ge 3 -and $nr.Length -ge 3) {
-                        if ($nr.Contains($nt) -or $nt.Contains($nr)) { $echo = $true }
+                        if ($nr.Contains($nt)) { $echo = $true }
+                        elseif ($nt.Contains($nr) -and $nt.Length -le ($nr.Length + 2)) { $echo = $true }
+                        elseif ($nt.Length -ge 6 -and $nr.Length -ge 6 -and $nt.Substring(0, 6) -eq $nr.Substring(0, 6)) { $echo = $true }
                         elseif ($nt.Length -ge 6 -and $nr.Length -ge 6 -and $nt.Substring(0, 6) -eq $nr.Substring(0, 6)) { $echo = $true }
                     }
                     $cool = (-not $script:lastReplyAt) -or (((Get-Date) - $script:lastReplyAt).TotalSeconds -gt 3)
@@ -2134,6 +2149,12 @@ $timer.Add_Tick({
                 Show-Bubble '没找到硅基流动钥匙，先用本机耳朵听，识别会吃亏些'
             }
         }
+
+    # 看门狗：chatBusy 卡住超过 60 秒就强制复位，避免麦克风被永久关闭
+    if ($script:chatBusy -and $script:chatBusyAt -and ((Get-Date) - $script:chatBusyAt).TotalSeconds -gt 60) {
+        $script:chatBusy = $false
+        Write-Err ('CHATBUSY-WATCHDOG')
+    }
 
         # 说完之后再恢复收音（否则会听见自己说话，自己跟自己聊）
         if ($script:speakEndAt -and (Get-Date) -ge $script:speakEndAt) {
