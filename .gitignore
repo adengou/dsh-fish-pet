@@ -1,4 +1,4 @@
-# 运行时数据
+# 杩愯鏃舵暟鎹?
 *.key
 siliconflow.key
 deepseek.key
@@ -10,11 +10,11 @@ state.json
 pet.pid
 *.wav
 
-# 依赖与构建产物
+# 渚濊禆涓庢瀯寤轰骇鐗?
 node_modules/
 dist/
 
-# 编辑器 / 系统
+# 缂栬緫鍣?/ 绯荤粺
 .vscode/
 .idea/
 .DS_Store
@@ -23,3 +23,5 @@ desktop.ini
 
 # Demo video is large - keep it out of the repo
 docs/*.mp4
+__pycache__/
+*.pyc
