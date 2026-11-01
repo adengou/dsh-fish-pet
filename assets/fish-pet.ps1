@@ -612,7 +612,6 @@ $menu.Items.Add($miMusic) | Out-Null
 $miMusicStop = $menu.Items.Add('停止弹奏')
 $miMusicStop.Add_Click({ try { Stop-Music | Out-Null } catch { } })
 $miType = $menu.Items.Add('打字说两句')
-$miTalk   = $menu.Items.Add('开始听我说（麦克风）')
 $miVoice  = $menu.Items.Add('语音朗读：开')
 $miVoiceSet = New-Object System.Windows.Forms.ToolStripMenuItem('换个声音')
 $menu.Items.Add($miVoiceSet) | Out-Null
@@ -975,7 +974,6 @@ function Update-MenuLang {
         if ($en) {
             Set-MenuItemText $miFeed 'Feed me'
             Set-MenuItemText $miType 'Type a message'
-            Set-MenuItemText $miTalk 'Start listening (mic)'
             Set-MenuItemText $miVoice $(if ($script:speakOn) { 'Voice reading: on' } else { 'Voice reading: off' })
             Set-MenuItemText $miVoiceSet 'Change voice'
             Set-MenuItemText $miChatLang 'Chat language'
@@ -995,7 +993,6 @@ function Update-MenuLang {
         } else {
             Set-MenuItemText $miFeed '喂它一口'
             Set-MenuItemText $miType '打字说两句'
-            Set-MenuItemText $miTalk '开始听我说（麦克风）'
             Set-MenuItemText $miVoice $(if ($script:speakOn) { '语音朗读：开' } else { '语音朗读：关' })
             Set-MenuItemText $miVoiceSet '换个声音'
             Set-MenuItemText $miChatLang '聊天语言'
@@ -2155,7 +2152,6 @@ $form.Add_MouseUp({
 })
 
 $miFeed.Add_Click({ Invoke-Feed })
-$miTalk.Add_Click({ Start-Listen })
 $miWake.Add_Click({
     $script:autoOn = -not $script:autoOn
     if ($script:autoOn) { Start-Auto; try { Update-MenuLang } catch { } } else { try { if ($script:rec) { $script:rec.RecognizeAsyncCancel() } } catch { }; BackToWake; try { Update-MenuLang } catch { } }
