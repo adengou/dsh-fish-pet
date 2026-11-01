@@ -1270,6 +1270,20 @@ function Speak-Sapi([string]$text) {
 function Play-TtsFile([string]$mp3, [string]$voice) {
     try {
         # WPF MediaPlayer 在 WinForms 消息循环里不会加载（Position 恒 0），改用 ffmpeg 转 WAV + SoundPlayer
+        # 已经是 WAV（worker 转好的）就直接播，省掉主线程里的 ffmpeg 转换
+        if ([IO.Path]::GetExtension($mp3) -ieq '.wav' -and (Test-Path $mp3)) {
+            try {
+                try { [IO.File]::WriteAllText((Join-Path $DataDir 'asr.talking'), '1') } catch { }
+                if ($null -eq $script:spPlay) { $script:spPlay = New-Object System.Media.SoundPlayer }
+                $script:spPlay.SoundLocation = $mp3
+                $script:spPlay.Play()
+                $dur = [Math]::Max(0.8, (Get-Item $mp3).Length / 44100.0)
+                $script:playUntil = (Get-Date).AddSeconds($dur + 1.5)
+                $script:speakEndAt = $script:playUntil
+                Write-Err ('TTS-WAV voice=' + $voice + ' file=' + (Get-Item $mp3).Length + ' dur=' + [Math]::Round($dur, 1) + ' direct=1')
+                return $true
+            } catch { Write-Err ('TTS-PLAY-ERR ' + $_.Exception.Message) }
+        }
         $ff = [string]$script:cfg.tts.ffmpeg
         if (-not $ff) { $ff = (Get-Command 'ffmpeg' -ErrorAction SilentlyContinue).Source }
         if (-not $ff) { Write-Err 'TTS-NO-FFMPEG'; return $false }
@@ -1332,9 +1346,13 @@ function Start-TtsPipeline([string]$text, [string]$voice, [string]$rate, [string
     $script:ttsSegDone = @()
     $script:ttsSegPlayed = @()
     $script:ttsSegReq = @()
+    $script:ttsSegWav = @()
+    $script:ttsSegOut = @()
     $script:ttsSegReqAt = @()
     for ($i = 0; $i -lt $script:ttsSegs.Count; $i++) {
         $script:ttsSegFiles += (Join-Path $env:TEMP ('fish-tts-' + [guid]::NewGuid().ToString('N') + '.mp3'))
+        $script:ttsSegWav += [IO.Path]::ChangeExtension($script:ttsSegFiles[$script:ttsSegFiles.Count - 1], '.wav')
+        $script:ttsSegOut += ''
         $script:ttsSegDone += $false
         $script:ttsSegPlayed += $false
         $script:ttsSegReq += ''
@@ -1359,6 +1377,7 @@ function Request-TtsSegment([int]$idx) {
             rate = $script:ttsSegRate
             pitch = $script:ttsSegPitch
             out = $script:ttsSegFiles[$idx]
+            wav = $(if ($script:ttsSegWav -and $script:ttsSegWav.Count -gt $idx) { $script:ttsSegWav[$idx] } else { $null })
             status = $script:ttsStatusFile
         } | ConvertTo-Json -Compress
         [IO.File]::WriteAllText($reqFile, $reqObj, (New-Object Text.UTF8Encoding($false)))
@@ -1457,12 +1476,18 @@ $script:ttsTimer.Add_Tick({
                 $hit = Get-Content $script:ttsStatusFile -ErrorAction SilentlyContinue | Where-Object { $_ -match ('^' + $rid + ' ') } | Select-Object -Last 1
             } catch { $hit = $null }
             # 请求丢失检测：6 秒还没有任何状态记录，按失败处理（会走下面的重试）
-            if (-not $hit -and $script:ttsSegReqAt -and $script:ttsSegReqAt.Count -gt $i -and $script:ttsSegReqAt[$i] -and ((Get-Date) - $script:ttsSegReqAt[$i]).TotalSeconds -gt 6) {
+            # 超时按文本长度动态给：短句 8 秒，长句最多 30 秒（worker 端并发排队也要算进去）
+            $waitSec = 8 + [Math]::Min(22, [int]($script:ttsSegs[$i].Length * 0.06))
+            if (-not $hit -and $script:ttsSegReqAt -and $script:ttsSegReqAt.Count -gt $i -and $script:ttsSegReqAt[$i] -and ((Get-Date) - $script:ttsSegReqAt[$i]).TotalSeconds -gt $waitSec) {
                 Write-Err ('TTS-SEG-TIMEOUT idx=' + $i)
                 $hit = 'TIMEOUT'
             }
             if ($hit) {
-                if ($hit -like ('*' + $rid + ' OK*')) { $script:ttsSegDone[$i] = $true }
+                if ($hit -like ('*' + $rid + ' OK*')) {
+                    # worker 返回的是转好的 WAV 路径；解析出来直接播放，主程序不再调 ffmpeg
+                    $script:ttsSegOut[$i] = ($hit -replace ('^' + [regex]::Escape($rid) + ' OK '), '').Trim()
+                    $script:ttsSegDone[$i] = $true
+                }
                 else {
                     Write-Err ('TTS-SEG-FAIL idx=' + $i)
                     # 合成失败也要立刻放开“正在说话”的锁，否则耳朵会被挡住整整一个看门狗周期
@@ -1489,7 +1514,7 @@ $script:ttsTimer.Add_Tick({
                 return
             }
             if ($script:ttsSegDone[$next]) {
-                $file = $script:ttsSegFiles[$next]
+                $file = if ($script:ttsSegOut -and $script:ttsSegOut.Count -gt $next -and $script:ttsSegOut[$next]) { $script:ttsSegOut[$next] } else { $script:ttsSegFiles[$next] }
                 if ((Test-Path $file) -and (Get-Item $file).Length -gt 800) {
                     $script:ttsSegPlaying = $next
                     $ok = Play-TtsFile $file $script:ttsVoiceUsed
@@ -1500,14 +1525,22 @@ $script:ttsTimer.Add_Tick({
                 }
             } elseif (-not $script:ttsSegReq[$next]) {
                 Request-TtsSegment $next
+                # 并发预取：一次把后面 2 段也发出去，worker 会并行合成
+                for ($q = 1; $q -le 2; $q++) {
+                    $nq = $next + $q
+                    if ($nq -lt $script:ttsSegs.Count -and -not $script:ttsSegDone[$nq] -and -not $script:ttsSegReq[$nq]) { Request-TtsSegment $nq }
+                }
             }
         } else {
             # 3) 正在播：到点视为播完（SoundPlayer 无结束事件），再预取下一段
             if ((-not $script:playUntil) -or ((Get-Date) -ge $script:playUntil)) {
                 Complete-TtsSegment
             } else {
-                $nx = $script:ttsSegPlaying + 1
-                if ($nx -lt $script:ttsSegs.Count -and -not $script:ttsSegDone[$nx] -and -not $script:ttsSegReq[$nx]) { Request-TtsSegment $nx }
+                # 播放中继续往后预取 2 段（worker 最多 4 路并发，够用）
+                for ($q2 = 1; $q2 -le 2; $q2++) {
+                    $nx = $script:ttsSegPlaying + $q2
+                    if ($nx -lt $script:ttsSegs.Count -and -not $script:ttsSegDone[$nx] -and -not $script:ttsSegReq[$nx]) { Request-TtsSegment $nx }
+                }
             }
         }
         return
