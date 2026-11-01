@@ -606,6 +606,8 @@ $script:chatOn = $true
 # ---------- 菜单 ----------
 $menu = New-Object System.Windows.Forms.ContextMenuStrip
 $miFeed   = $menu.Items.Add('喂它一口')
+$miMusic  = $menu.Items.Add('弹首曲子')
+$miMusic.Add_Click({ try { $all = Get-MusicLib; if ($all -and $all.Count -gt 0) { $pick = $all[(Get-Random -Maximum $all.Count)]; Start-Music $pick.name | Out-Null } } catch { } })
 $miType = $menu.Items.Add('打字说两句')
 $miTalk   = $menu.Items.Add('开始听我说（麦克风）')
 $miVoice  = $menu.Items.Add('语音朗读：开')
@@ -1779,6 +1781,77 @@ function Find-Poem([string]$q) {
     return $all[(Get-Random -Maximum $all.Count)]
 }
 
+# ---------- 弹琴：乐谱合成 WAV 后播放 ----------
+$script:musicLib = $null
+function Get-MusicLib {
+    if ($script:musicLib) { return $script:musicLib }
+    try {
+        $f = Join-Path $PSScriptRoot 'data\melodies.json'
+        if (-not (Test-Path $f)) { return $null }
+        $script:musicLib = ([IO.File]::ReadAllText($f, [Text.Encoding]::UTF8) | ConvertFrom-Json).songs
+        # 本机自定义曲目（主人自己加的，不进公开仓库）：data\melodies.local.json
+        try {
+             $lf = Join-Path $DataDir 'melodies.local.json'
+            if (-not (Test-Path $lf)) { $lf = Join-Path $PSScriptRoot 'data\melodies.local.json' }
+            if (Test-Path $lf) {
+                $extra = ([IO.File]::ReadAllText($lf, [Text.Encoding]::UTF8) | ConvertFrom-Json).songs
+                if ($extra) { $script:musicLib = @($script:musicLib) + @($extra) }
+            }
+        } catch { }
+    } catch { $script:musicLib = $null }
+    return $script:musicLib
+}
+function Find-Song([string]$q) {
+    $all = Get-MusicLib
+    if (-not $all) { return $null }
+    foreach ($s in $all) {
+        if ($q -and $q.Contains([string]$s.name)) { return $s }
+        foreach ($a in @($s.aliases)) { if ($a -and $q.Contains([string]$a)) { return $s } }
+    }
+    return $null
+}
+function Start-Music([string]$songName) {
+    $lib = Get-MusicLib
+    if (-not $lib -or $lib.Count -eq 0) { Show-Bubble '(music library missing)'; return $false }
+    $song = Find-Song $songName
+    if (-not $song) { return $false }
+    $gen = Join-Path $PSScriptRoot 'music_gen.py'
+    if (-not (Test-Path $gen)) { Show-Bubble '(music generator missing)'; return $false }
+    $out = Join-Path $env:TEMP ('fish-music-' + [guid]::NewGuid().ToString('N') + '.wav')
+    try {
+        $arg = '"' + $gen + '" --song "' + [string]$song.name + '" --out "' + $out + '" --library "' + (Join-Path $PSScriptRoot 'data\melodies.json') + '"'
+        $script:musicProc = Start-Process -FilePath 'python' -ArgumentList $arg -WindowStyle Hidden -PassThru
+        $script:musicOut = $out
+        $script:musicAt = Get-Date
+        $script:musicSong = $song
+        $script:musicSing = ($songName -match '唱')
+        Show-Bubble ('弹首《' + $song.name + '》给主人听～')
+        Write-Err ('MUSIC-GEN ' + $song.name + ' pid=' + $script:musicProc.Id)
+        return $true
+    } catch { Write-Err ('MUSIC-ERR ' + $_.Exception.Message); return $false }
+}
+function Finish-Music {
+    try {
+        $out = $script:musicOut
+        if (-not $out -or -not (Test-Path $out)) { $script:musicOut = $null; return }
+        $len = (Get-Item $out).Length
+        if ($len -lt 30000) { return }
+        if ($null -eq $script:musicPlayer) { $script:musicPlayer = New-Object System.Media.SoundPlayer }
+        $script:musicPlayer.SoundLocation = $out
+        $script:musicPlayer.Play()
+        $dur = $len / 44100.0
+        $script:musicUntil = (Get-Date).AddSeconds($dur + 1.0)
+        $script:speakEndAt = $script:musicUntil
+        try { [IO.File]::WriteAllText((Join-Path $DataDir 'asr.talking'), '1') } catch { }
+        if ($script:musicSong -and $script:musicSong.lyrics) { Show-Bubble ([string]$script:musicSong.lyrics) }
+        Write-Err ('MUSIC-PLAY ' + $(if ($script:musicSong) { $script:musicSong.name } else { '?' }) + ' dur=' + [Math]::Round($dur, 1))
+        # 唱模式：旋律播完再念歌词，避免两个声音叠在一起
+        if ($script:musicSing -and $script:musicSong -and $script:musicSong.lyrics) { $script:musicPendingLyrics = [string]$script:musicSong.lyrics }
+        $script:musicOut = $null
+        $script:musicProc = $null
+    } catch { Write-Err ('MUSIC-PLAY-ERR ' + $_.Exception.Message) }
+}
+
 function Start-Chat([string]$text) {
     Write-Err ('CHAT-START busy=' + $script:chatBusy + ' text=' + $text)
     $text = Fix-AsrText $text
@@ -2108,6 +2181,17 @@ $timer.Add_Tick({
             }
         }
 
+        # 唱模式：旋律放完后再念歌词
+        if ($script:musicPendingLyrics -and (-not $script:musicUntil -or (Get-Date) -ge $script:musicUntil)) {
+            $ly = $script:musicPendingLyrics; $script:musicPendingLyrics = $null
+            try { Speak-Text $ly } catch { }
+        }
+
+        # 弹琴：子进程跑完且文件够大才播
+        if ($script:musicOut -and $script:musicProc) {
+            try { if ($script:musicProc.HasExited) { Finish-Music } } catch { $script:musicOut = $null; $script:musicProc = $null }
+        }
+
         # 脉动回归
         if ($script:pulse -gt 1.0) { $script:pulse = [Math]::Max(1.0, $script:pulse - $dt * 0.55) }
 
@@ -2204,6 +2288,10 @@ $timer.Add_Tick({
                     if (-not $script:chatBusy) { Show-Bubble '（没听清，再说一遍嘛）' }
                 } elseif ($parts.Count -ge 3 -and $parts[1] -eq '1') {
                     $text = $parts[2].Trim()
+                    # 弹琴意图：命中曲库就本地合成播放，不走对话模型
+                    if ($text -match '弹|演奏|唱首|唱个|来首曲子|music|play') {
+                        if (Start-Music $text) { break }
+                    }
                     $dup = $false
                     if ($text.Length -ge 1) {
                         if ($script:lastHeard -eq $text -and ((Get-Date) - $script:lastHeardAt).TotalSeconds -lt 20) { $dup = $true }
