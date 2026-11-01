@@ -1837,11 +1837,11 @@ function Finish-Music {
         $out = $script:musicOut
         if (-not $out -or -not (Test-Path $out)) { $script:musicOut = $null; return }
         $len = (Get-Item $out).Length
-        if ($len -lt 30000) { return }
+        if ($len -lt 60000) { return }
         if ($null -eq $script:musicPlayer) { $script:musicPlayer = New-Object System.Media.SoundPlayer }
         $script:musicPlayer.SoundLocation = $out
         $script:musicPlayer.Play()
-        $dur = $len / 44100.0
+        $dur = $len / 88200.0
         $script:musicUntil = (Get-Date).AddSeconds($dur + 1.0)
         $script:speakEndAt = $script:musicUntil
         try { [IO.File]::WriteAllText((Join-Path $DataDir 'asr.talking'), '1') } catch { }

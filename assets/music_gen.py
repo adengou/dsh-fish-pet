@@ -1,4 +1,4 @@
-r"""把乐谱合成成 WAV，供桌面鱼播放。
+﻿r"""把乐谱合成成 WAV，供桌面鱼播放。
 
 用法：
   python music_gen.py --song 小星星 --out C:\temp\music.wav [--library melodies.json] [--list]
@@ -13,7 +13,7 @@ import struct
 import sys
 import wave
 
-SR = 22050
+SR = 44100
 NOTE_BASE = {'C': 0, 'D': 2, 'E': 4, 'F': 5, 'G': 7, 'A': 9, 'B': 11}
 
 
@@ -79,7 +79,7 @@ def find_song(lib, query):
 def synth(song, out_path):
     bpm = float(song.get('bpm') or 120)
     beat_ms = 60000.0 / bpm
-    gap_ms = 12
+    gap_ms = 6
     chunks = []
     for item in song.get('notes', []):
         if not item:
