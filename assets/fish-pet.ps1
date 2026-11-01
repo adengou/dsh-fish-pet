@@ -52,7 +52,7 @@ function Load-Config {
         persona = [ordered]@{ name = '大肥鱼'; nameEn = 'Mia'; dad = '光光'; mom = '丽丽'; birthday = '2026年10月30日'; birthplace = '中国广西北海'; likes = '白饭、被摸头、主人夸它'; dislikes = '被说胖、被冷落、吵'; ownerBirthday = ''; lang = 'auto'; extra = '你说话简短、俏皮、微微傲娇，用中文，称呼用户为"主人"，每次回复不超过30个字，不要用表情符号。' }
         bubble  = [ordered]@{ opacity = 0.15 }
         voice   = [ordered]@{ silenceGate = 1200; boost = 1; engine = 'cloud'; localConf = 0.55 }
-        tts     = [ordered]@{ engine = 'edge'; voice = 'zh-CN-XiaoxiaoNeural'; rate = '+12%'; pitch = '+10Hz'; voiceEn = 'en-US-AnaNeural'; rateEn = '+8%'; pitchEn = '+15Hz'; ffmpeg = '' }
+        tts     = [ordered]@{ engine = 'edge'; voice = 'zh-CN-XiaoyiNeural'; rate = '+12%'; pitch = '+10Hz'; voiceEn = 'en-US-AnaNeural'; rateEn = '+8%'; pitchEn = '+15Hz'; ffmpeg = '' }
         ui      = [ordered]@{ lang = 'zh' }
     }
     $script:cfg = $def
@@ -607,6 +607,8 @@ $script:chatOn = $true
 $menu = New-Object System.Windows.Forms.ContextMenuStrip
 $miFeed   = $menu.Items.Add('喂它一口')
 $miMusic  = $menu.Items.Add('弹首曲子')
+$miMusicStop = $menu.Items.Add('停止弹奏')
+$miMusicStop.Add_Click({ try { Stop-Music | Out-Null } catch { } })
 $miMusic.Add_Click({ try { $all = Get-MusicLib; if ($all -and $all.Count -gt 0) { $pick = $all[(Get-Random -Maximum $all.Count)]; Start-Music $pick.name | Out-Null } } catch { } })
 $miType = $menu.Items.Add('打字说两句')
 $miTalk   = $menu.Items.Add('开始听我说（麦克风）')
@@ -1852,6 +1854,21 @@ function Finish-Music {
     } catch { Write-Err ('MUSIC-PLAY-ERR ' + $_.Exception.Message) }
 }
 
+function Stop-Music {
+    try {
+        if ($script:musicPlayer) { $script:musicPlayer.Stop() }
+        if ($script:musicProc -and -not $script:musicProc.HasExited) { try { $script:musicProc.Kill() } catch { } }
+        $script:musicOut = $null
+        $script:musicProc = $null
+        $script:musicUntil = $null
+        $script:musicPendingLyrics = $null
+        $script:speakEndAt = (Get-Date)
+        Write-Err 'MUSIC-STOP'
+        Show-Bubble '好嘛，人家不弹了～'
+        return $true
+    } catch { return $false }
+}
+
 function Start-Chat([string]$text) {
     Write-Err ('CHAT-START busy=' + $script:chatBusy + ' text=' + $text)
     $text = Fix-AsrText $text
@@ -2289,6 +2306,9 @@ $timer.Add_Tick({
                 } elseif ($parts.Count -ge 3 -and $parts[1] -eq '1') {
                     $text = $parts[2].Trim()
                     # 弹琴意图：命中曲库就本地合成播放，不走对话模型
+                    if ($text -match '别弹|不要弹|停止|安静|安静点|闭嘴|stop') {
+                        if (Stop-Music) { break }
+                    }
                     if ($text -match '弹|演奏|唱首|唱个|来首曲子|music|play') {
                         if (Start-Music $text) { break }
                     }

@@ -1,5 +1,18 @@
 ﻿# Changelog
 
+## [0.2.25] - 2026-11-01
+
+### Changed
+- **默认音色换成「活泼少女·晓伊」**：	ts.voice 与代码默认值同步为 zh-CN-XiaoyiNeural（实测日志 TTS-WAV voice=zh-CN-XiaoyiNeural）
+
+### Added
+- **弹奏可中途停止**：说「别弹了 / 停止 / 安静」或右键「停止弹奏」，立即停播并清空待念歌词
+- 右键菜单新增「停止弹奏」，与「弹首曲子」并列
+
+### Verified
+- 「弹首小星星」→ MUSIC-GEN → MUSIC-PLAY dur=24.5
+- 「别弹了」→ MUSIC-STOP（不触发对话，不消耗 token）
+- 「弹首两只老虎」→ 停止后仍可继续弹，dur=33.5
 ## [0.2.24] - 2026-11-01
 
 ### Added
