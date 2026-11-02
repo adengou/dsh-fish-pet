@@ -1,4 +1,12 @@
-﻿# vision.ps1 · 截图问答：窗口拾取 + 截图 + 视觉模型（从主脚本拆出）
+﻿# ============================================================
+# vision.ps1 — 截图问答（视觉模型）
+# 依赖声明（自动生成，勿手改）：
+#   主脚本提供: Get-ApiKey, Show-Bubble, Write-Err
+#   $script 变量: lastShotAt, lastShotWin, lookOnDrag, visionHttp, visionPending
+#   被其他模块调用: Invoke-VisionLlm() ← briefing.ps1
+# ============================================================
+
+# vision.ps1 · 截图问答：窗口拾取 + 截图 + 视觉模型（从主脚本拆出）
 
 # 窗口拾取：把鱼拖到哪个窗口上就认出哪个窗口（截图问答用）
 Add-Type -ReferencedAssemblies 'System.Drawing','System.Windows.Forms','System' -TypeDefinition @'

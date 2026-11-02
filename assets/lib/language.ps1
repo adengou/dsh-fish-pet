@@ -1,4 +1,12 @@
-﻿# language.ps1 · 右键菜单语言 / 界面语言 / 音色切换（从主脚本拆出）
+﻿# ============================================================
+# language.ps1 — 菜单与界面语言
+# 依赖声明（自动生成，勿手改）：
+#   主脚本提供: Show-Bubble, Write-Err
+#   $script 变量: autoOn, cfg, chatOn, langItemMap, langItemsFresh, langMode, paused, speakOn, ttsVoice, uiItemMap, uiLang, voiceItemMap
+#   调用其他模块: Speak-Text() → speech.ps1
+# ============================================================
+
+# language.ps1 · 右键菜单语言 / 界面语言 / 音色切换（从主脚本拆出）
 
 # 右键菜单文字随语言切换（中文 / English）
 function Set-MenuItemText($item, [string]$text) {

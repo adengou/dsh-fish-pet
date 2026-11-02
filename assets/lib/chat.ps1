@@ -1,4 +1,13 @@
-﻿# chat.ps1 · 聊天核心（Start-Chat / 文本修正 / 语言判断，从主脚本拆出）
+﻿# ============================================================
+# chat.ps1 — 聊天核心（提示词、请求、回复处理）
+# 依赖声明（自动生成，勿手改）：
+#   主脚本提供: Get-ApiKey, Show-Bubble, Write-Err
+#   $script 变量: birthdayMMDD, cfg, chatBusy, chatBusyAt, chatHistory, chatPending, chatTask, chatTimer, feeds, http, hunger, intimacy, langMode, lastFeedAtStr, lastUser, mood, musicQueue, poemData
+#   调用其他模块: Find-Poem() → music.ps1; Get-DueFromText() → reminders.ps1; Load-Notes() → reminders.ps1; Save-Note() → reminders.ps1; Test-MusicBusy() → music.ps1
+#   被其他模块调用: Get-TextLang() ← speech.ps1
+# ============================================================
+
+# chat.ps1 · 聊天核心（Start-Chat / 文本修正 / 语言判断，从主脚本拆出）
 
 function Fix-AsrText([string]$s) {
     if (-not $s) { return $s }

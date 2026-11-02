@@ -1,4 +1,12 @@
-﻿# reminders.ps1 · 便签/提醒（数据结构、解析、清单 UI，从主脚本拆出）
+﻿# ============================================================
+# reminders.ps1 — 提醒与便签
+# 依赖声明（自动生成，勿手改）：
+#   主脚本提供: Show-Bubble, Write-Err
+#   $script 变量: inputBox, inputDlg, inputText, notesPath, remBtnClear, remBtnClose, remBtnDel, remDlg, remItems, remList, remRefresh
+#   被其他模块调用: Get-DueFromText() ← chat.ps1; Load-Notes() ← briefing.ps1; Load-Notes() ← chat.ps1; Save-Note() ← chat.ps1
+# ============================================================
+
+# reminders.ps1 · 便签/提醒（数据结构、解析、清单 UI，从主脚本拆出）
 
 # ---- 主人交代过的事（便签）----
 $script:notesPath = Join-Path $DataDir 'notes.json'

@@ -1,4 +1,13 @@
-﻿# speech.ps1 · 语音朗读（TTS 流水线 / 常驻 worker / 状态回收，从主脚本拆出）
+﻿# ============================================================
+# speech.ps1 — TTS 语音朗读
+# 依赖声明（自动生成，勿手改）：
+#   主脚本提供: Write-Err
+#   $script 变量: cfg, lastPlayedWav, mood, pauseHook, playUntil, spPlay, speakEndAt, speakOn, synth, ttsEngine, ttsHandle, ttsMode, ttsMp3, ttsPS, ttsPitch, ttsPitchEn, ttsPool, ttsProc, ttsRate, ttsRateEn, ttsRetry, ttsSegDone, ttsSegFiles, ttsSegOut, ttsSegPitch, ttsSegPlayed, ttsSegPlaying, ttsSegRate, ttsSegReq, ttsSegReqAt, ttsSegVoice, ttsSegWav, ttsSegs, ttsStatusFile, ttsText, ttsTimer, ttsVoice, ttsVoiceEn, ttsVoiceUsed
+#   调用其他模块: Get-TextLang() → chat.ps1
+#   被其他模块调用: Speak-Text() ← briefing.ps1; Speak-Text() ← dsh.ps1; Speak-Text() ← language.ps1
+# ============================================================
+
+# speech.ps1 · 语音朗读（TTS 流水线 / 常驻 worker / 状态回收，从主脚本拆出）
 
 function Speak-Sapi([string]$text) {
     try {

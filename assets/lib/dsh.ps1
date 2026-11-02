@@ -1,4 +1,12 @@
-﻿# dsh.ps1 · 鱼 → DSH 任务转交（通过插件本机路由 /fishpet/task）
+﻿# ============================================================
+# dsh.ps1 — 把任务转交给 DSH 助手
+# 依赖声明（自动生成，勿手改）：
+#   主脚本提供: Get-ApiKey, Show-Bubble, Write-Err
+#   $script 变量: cfg, dshInputText
+#   调用其他模块: Speak-Text() → speech.ps1
+# ============================================================
+
+# dsh.ps1 · 鱼 → DSH 任务转交（通过插件本机路由 /fishpet/task）
 # 依赖主脚本：Show-Bubble / Speak-Text / Write-Err / Get-ApiKey
 
 # 把一段任务文字交给 DSH（新开一个会话），成功返回 $true

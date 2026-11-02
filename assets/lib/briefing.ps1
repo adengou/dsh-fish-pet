@@ -1,4 +1,12 @@
-﻿# briefing.ps1 · 每日简报 / 文件拖拽 / 语音备忘 / 口述公文（从主脚本拆出）
+﻿# ============================================================
+# briefing.ps1 — 简报 / 公文 / 文件拖拽
+# 依赖声明（自动生成，勿手改）：
+#   主脚本提供: Get-ApiKey, Show-Bubble, Write-Err
+#   $script 变量: briefHttp, cfg, gongwenHttp, notesPath, remHttp, sumHttp
+#   调用其他模块: Invoke-VisionLlm() → vision.ps1; Load-Notes() → reminders.ps1; Speak-Text() → speech.ps1
+# ============================================================
+
+# briefing.ps1 · 每日简报 / 文件拖拽 / 语音备忘 / 口述公文（从主脚本拆出）
 
 
 # ---------- 今日简报（天气 + 今日提醒，交给鱼自己组织） ----------

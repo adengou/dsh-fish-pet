@@ -1,4 +1,12 @@
-﻿# music.ps1 · 诗歌 / 奏乐模块（从主脚本拆出）
+﻿# ============================================================
+# music.ps1 — 奏乐（曲库 / 简谱合成 / MIDI 渲染 / 播放）
+# 依赖声明（自动生成，勿手改）：
+#   主脚本提供: Show-Bubble, Write-Err
+#   $script 变量: FishAssets, musicAt, musicLib, musicOut, musicPendingLyrics, musicPlayer, musicProc, musicQueue, musicSing, musicSong, musicUntil, poemData, speakEndAt
+#   被其他模块调用: Find-Poem() ← chat.ps1; Test-MusicBusy() ← chat.ps1
+# ============================================================
+
+# music.ps1 · 诗歌 / 奏乐模块（从主脚本拆出）
 # 本文件在 assets\lib 下，用 $script:FishAssets 指向 assets 根目录
 $script:FishAssets = Split-Path -Parent $PSScriptRoot
 
