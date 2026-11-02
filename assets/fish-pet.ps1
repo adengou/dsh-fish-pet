@@ -664,10 +664,12 @@ $script:chatOn = $true
 # ---------- 菜单 ----------
 $menu = New-Object System.Windows.Forms.ContextMenuStrip
 $miFeed   = $menu.Items.Add('喂它一口')
+$menu.Items.Add((New-Object System.Windows.Forms.ToolStripSeparator)) | Out-Null
 $miMusic  = New-Object System.Windows.Forms.ToolStripMenuItem('弹首曲子')
 $menu.Items.Add($miMusic) | Out-Null
                     # 子项在脚本末尾（函数定义齐全之后）一次性建好，避免展开时崩溃
 $miMusicStop = $menu.Items.Add('停止弹奏')
+$menu.Items.Add((New-Object System.Windows.Forms.ToolStripSeparator)) | Out-Null
 $miMusicStop.Add_Click({ try { Stop-Music | Out-Null } catch { } })
 $miType = $menu.Items.Add('打字说两句')
 $miVoice  = $menu.Items.Add('语音朗读：开')
@@ -714,6 +716,7 @@ foreach ($uc in $uiChoices) {
     $script:uiItemMap[[string]$uc[0]] = $itU
 }
 $menu.Items.Add($miUiLang) | Out-Null
+$menu.Items.Add((New-Object System.Windows.Forms.ToolStripSeparator)) | Out-Null
 $voiceChoices = @(
     @('zh-CN-XiaoyiNeural', '活泼少女·晓伊'),
     @('zh-CN-XiaoxiaoNeural', '温柔姐姐·晓晓'),
@@ -749,10 +752,12 @@ $miBriefing = $menu.Items.Add('今日简报：开')
 $miBriefNow = $menu.Items.Add('现在简报一次')
 $miBriefRecent = New-Object System.Windows.Forms.ToolStripMenuItem('最近简报')
 $menu.Items.Add($miBriefRecent) | Out-Null
+$menu.Items.Add((New-Object System.Windows.Forms.ToolStripSeparator)) | Out-Null
 $miDictate = $menu.Items.Add('口述公文：开始')
 $miDsh = $menu.Items.Add('交给 DSH 助手…')
 $miRemind = $menu.Items.Add('加个提醒…')
 $miRemindList = $menu.Items.Add('提醒清单…')
+$menu.Items.Add((New-Object System.Windows.Forms.ToolStripSeparator)) | Out-Null
 $miClear  = $menu.Items.Add('清除记忆…')
 $miQuit   = $menu.Items.Add('让它游走（退出）')
 
