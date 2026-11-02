@@ -1,5 +1,16 @@
 ﻿# Changelog
 
+## [0.2.40] - 2026-11-02
+
+### Changed
+- **主脚本再拆分**：ish-pet.ps1 1797 → 1253 行（-30%），新拆出 3 个模块
+  - lib\draw.ps1（227 行）画鱼：New-Solid / New-Pen / Draw-Fish
+  - lib\ui.ps1（96 行）气泡与输入框：Show-Bubble / Show-Input
+  - lib\menu.ps1（112 行）右键菜单构建
+- 模块总数 9 → 12，按「视觉 → 绘图 → 菜单 → 提醒 → 语言 → UI → 语音 → 简报 → 聊天 → 音乐 → DSH」顺序加载
+
+### Fixed
+- 拆分时 speech.ps1 / riefing.ps1 的加载行被误切进 ui.ps1，导致路径解析成 lib\lib\... 启动失败；已移回主脚本
 ## [0.2.39] - 2026-11-02
 
 ### Changed
