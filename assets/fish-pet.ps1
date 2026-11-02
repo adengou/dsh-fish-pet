@@ -756,6 +756,17 @@ $miRemindList = $menu.Items.Add('提醒清单…')
 $miClear  = $menu.Items.Add('清除记忆…')
 $miQuit   = $menu.Items.Add('让它游走（退出）')
 
+# 菜单最下面显示版本号（灰色不可点）
+$script:petVersion = 'dev'
+try {
+    $pj = Join-Path (Split-Path -Parent $PSScriptRoot) 'package.json'
+    if (Test-Path $pj) { $script:petVersion = [string](Get-Content $pj -Raw -Encoding UTF8 | ConvertFrom-Json).version }
+} catch { }
+if (-not $script:petVersion) { $script:petVersion = 'dev' }
+$menu.Items.Add((New-Object System.Windows.Forms.ToolStripSeparator)) | Out-Null
+$miVersion = $menu.Items.Add('版本 v' + $script:petVersion)
+$miVersion.Enabled = $false
+
 function Save-State {
     $obj = [ordered]@{
         x = [int]$script:x; y = [int]$script:y; dir = [int]$script:dir
