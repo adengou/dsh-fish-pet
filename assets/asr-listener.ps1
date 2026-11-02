@@ -1,7 +1,7 @@
 ﻿# asr-listener.ps1 · 云端耳朵（VAD 连续采集版）
 # 一次连续采集，检测到"说完"立刻上传，不再固定切片
 param(
-    [int]$MaxMs = 8000,
+    [int]$MaxMs = 4000,
     [int]$SilenceMs = 700,
     [int]$Boost = 1,
     [int]$SilenceGate = 600
