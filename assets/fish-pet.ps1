@@ -737,10 +737,7 @@ function Open-Chat {
 # 诗歌/奏乐模块，实现在 lib\music.ps1
 . (Join-Path (Split-Path -Parent $PSCommandPath) 'lib\music.ps1')
 # 鱼 -> DSH 转交任务模块，实现在 lib\dsh.ps1
-. (Join-Path (Split-Path -Parent $PSCommandPath) 'lib\dsh.ps1')
-
-# 直播模式（舞台背景 + 节目单），实现在 lib\live.ps1
-. (Join-Path (Split-Path -Parent $PSCommandPath) 'lib\live.ps1')
+. (Join-Path (Split-Path -Parent $PSCommandPath) 'lib\dsh.ps1')
 
 $script:chatTimer = New-Object System.Windows.Forms.Timer
 $script:chatTimer.Interval = 120
@@ -1016,9 +1013,6 @@ $timer.Add_Tick({
 
         }
 
-        # 直播模式：节目单调度
-        try { Update-Live } catch { }
-
         # 弹完了，处理排队中的请求（按类型分派：点歌 / 聊天）
         if ($script:musicQueue.Count -gt 0 -and -not (Test-MusicBusy) -and -not $script:chatBusy) {
             $item = $script:musicQueue[0]
