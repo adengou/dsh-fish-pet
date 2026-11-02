@@ -68,7 +68,7 @@ public class EarVad
     public static int RawPeak;
     public static int DurationMs;
 
-    public static bool Capture(int maxMs, int gate, int silenceMs, int boost, int role)
+    public static bool Capture(int maxMs, int gate, int silenceMs, int boost, int role, string busyPath)
     {
         Pcm = new byte[0]; RawPeak = 0; DurationMs = 0;
         var en = (IVadEnum)(new VadEnum());
@@ -126,6 +126,7 @@ public class EarVad
                 if (peakInt >= gate)
                 {
                     started = true;
+                    try { System.IO.File.WriteAllText(busyPath, DateTime.Now.ToString("o")); } catch { }
                     all.AddRange(pre);
                     pre.Clear();
                     silent = 0;
@@ -281,8 +282,9 @@ $script:lastFishCheck = Get-Date
         if ($key) { $key = $key.Trim() }
         # 没 key 不再停摆：本地引擎照常录音，只有云端识别这一步会跳过
 
+        try { Remove-Item -LiteralPath $BusyFile -Force -ErrorAction SilentlyContinue } catch { }
         $ok = $false
-        try { $ok = [EarVad]::Capture($MaxMs, $SilenceGate, $SilenceMs, $Boost, 2) }
+        try { $ok = [EarVad]::Capture($MaxMs, $SilenceGate, $SilenceMs, $Boost, 2, $BusyFile) }
         catch {
             # 没有可用麦克风时不再每 0.8 秒刷一次 asr.err：只提示一次，然后慢速重试
             if (-not $script:micWarned) {
