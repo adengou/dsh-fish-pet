@@ -47,6 +47,32 @@ if (-not (Test-Path $DataDir)) { New-Item -ItemType Directory -Force -Path $Data
 try { Remove-Item (Join-Path $DataDir 'asr.stop') -Force -ErrorAction SilentlyContinue } catch { }
 $StatePath = Join-Path $DataDir 'state.json'
 $ConfigPath = Join-Path $DataDir 'config.json'
+# 动态解析存档根目录：优先 config 指定 → 有 D~F 盘就用盘上的「桌宠」→ 否则落到用户目录
+function Resolve-PetStore {
+    $dir = '' 
+    try { if ($script:cfg -and $script:cfg.storage -and $script:cfg.storage.dir) { $dir = [string]$script:cfg.storage.dir } } catch { }
+    if (-not $dir) {
+        foreach ($d in @('F:')) {
+            if (Test-Path $d) { $dir = Join-Path $d '桌宠'; break }
+        }
+    }
+    if (-not $dir) { $dir = Join-Path $env:USERPROFILE '.dsh\fish-pet\存档' }
+    if (-not (Test-Path $dir)) { try { New-Item -ItemType Directory -Force -Path $dir | Out-Null } catch { } }
+    return $dir
+}
+
+function Resolve-DshCwd {
+    $dir = '' 
+    try { if ($script:cfg -and $script:cfg.dsh -and $script:cfg.dsh.cwd) { $dir = [string]$script:cfg.dsh.cwd } } catch { }
+    if (-not $dir) {
+        foreach ($cand in @('F:\李智梅党建工作材料')) {
+            if (Test-Path $cand) { $dir = $cand; break }
+        }
+    }
+    if (-not $dir) { $dir = [Environment]::GetFolderPath('MyDocuments') }
+    return $dir
+}
+
 function Load-Config {
     $def = [ordered]@{
         persona = [ordered]@{ name = '大肥鱼'; nameEn = 'Mia'; dad = '光光'; mom = '丽丽'; birthday = '2026年10月30日'; birthplace = '中国广西北海'; likes = '白饭、被摸头、主人夸它'; dislikes = '被说胖、被冷落、吵'; ownerBirthday = ''; lang = 'auto'; extra = '说话简短、俏皮、微微傲娇，用中文，称呼用户为"主人"，每次回复不超过30个字，不要用表情符号。' }
@@ -54,7 +80,9 @@ function Load-Config {
         voice   = [ordered]@{ silenceGate = 1200; boost = 1; engine = 'cloud'; localConf = 0.55 }
         tts     = [ordered]@{ engine = 'edge'; voice = 'zh-CN-XiaoyiNeural'; rate = '+12%'; pitch = '+10Hz'; voiceEn = 'en-US-AnaNeural'; rateEn = '+8%'; pitchEn = '+15Hz'; ffmpeg = '' }
         ui      = [ordered]@{ lang = 'zh' }
-        briefing = [ordered]@{ enabled = $true; time = '07:30'; cityCode = '101301301'; dir = 'F:\桌宠' }
+        briefing = [ordered]@{ enabled = $true; time = '07:30'; cityCode = '101301301'; dir = '' }
+        dsh     = [ordered]@{ cwd = '' }
+        storage = [ordered]@{ dir = '' }
     }
     $script:cfg = $def
     try {
@@ -1302,7 +1330,8 @@ $miDictate.Add_Click({
             Show-Bubble '你说，我记着，说完再点一次'
         }
     } catch { Write-Err ('DICTATE-ERR ' + $_.Exception.Message) }
-})
+})
+
 $miDsh.Add_Click({ Show-DshTaskInput })
 
 $miRemind.Add_Click({ Show-Reminder })

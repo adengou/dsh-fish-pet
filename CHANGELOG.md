@@ -1,5 +1,12 @@
 ﻿# Changelog
 
+## [0.2.37] - 2026-11-02
+
+### Fixed
+- **盘符写死**：riefing.ps1 的 F:\桌宠、dsh.ps1 的 F:\李智梅党建工作材料 都改成运行时动态解析
+  - 新增 Resolve-PetStore：优先 config.storage.dir → 有 F 盘就用 F:\桌宠 → 否则 %USERPROFILE%\.dsh\fish-pet\存档
+  - 新增 Resolve-DshCwd：优先 config.dsh.cwd → 有 F:\李智梅党建工作材料 就用它 → 否则「我的文档」
+  - 换机器不再需要改代码，也不会在别的盘符乱建文件夹
 ## [0.2.36] - 2026-11-02
 
 ### Added

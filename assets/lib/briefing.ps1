@@ -234,7 +234,7 @@ function Generate-Gongwen([string]$raw) {
 function Get-BriefingDir {
     $dir = ''
     try { $dir = [string]$script:cfg.briefing.dir } catch { }
-    if (-not $dir) { $dir = 'F:\桌宠' }
+    if (-not $dir) { $dir = Resolve-PetStore }
     if (-not (Test-Path $dir)) { try { New-Item -ItemType Directory -Force -Path $dir | Out-Null } catch { } }
     return $dir
 }

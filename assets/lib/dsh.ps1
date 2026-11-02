@@ -17,7 +17,7 @@ function Send-DshTask([string]$text) {
         # 工作目录：优先 config.json 的 dsh.cwd，其次主人常用的 F 盘工作目录
         $cwd = ''
         try { if ($script:cfg.dsh -and $script:cfg.dsh.cwd) { $cwd = [string]$script:cfg.dsh.cwd } } catch { }
-        if (-not $cwd) { $cwd = 'F:\李智梅党建工作材料' }
+        if (-not $cwd) { $cwd = Resolve-DshCwd }
         $body = @{ text = $text; cwd = $cwd } | ConvertTo-Json -Compress
         $http = New-Object System.Net.Http.HttpClient
         $http.Timeout = [TimeSpan]::FromSeconds(30)
