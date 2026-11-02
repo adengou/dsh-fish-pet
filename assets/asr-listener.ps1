@@ -18,6 +18,7 @@ $DataDir = Join-Path $env:USERPROFILE '.dsh\fish-pet'
 if (-not (Test-Path $DataDir)) { New-Item -ItemType Directory -Force -Path $DataDir | Out-Null }
 $OutFile   = Join-Path $DataDir 'asr.log'
 $LevelFile = Join-Path $DataDir 'asr.level'
+$BusyFile  = Join-Path $DataDir 'asr.busy'
 $ErrFile   = Join-Path $DataDir 'asr.err'
 $KeyFile   = Join-Path $DataDir 'siliconflow.key'
 
@@ -309,6 +310,8 @@ $script:lastFishCheck = Get-Date
         if ($ms -lt 400 -or [EarVad]::RawPeak -lt $SilenceGate) { continue }
 
         Add-Content -LiteralPath $OutFile -Value ((Get-Date -Format 'HH:mm:ss') + "`tH`t(听到声音 " + $ms + "ms)") -Encoding UTF8
+        # 进入识别流程：标记耳朵“忙”，主程序据此不再显示“在听…”
+        try { [IO.File]::WriteAllText($BusyFile, (Get-Date).ToString('o')) } catch { }
         $wav = Join-Path $DataDir ('chunk-' + [guid]::NewGuid().ToString('N') + '.wav')
         Write-Wav $wav $pcm
         try { Copy-Item $wav (Join-Path $DataDir 'last-chunk.wav') -Force } catch { }
@@ -377,8 +380,11 @@ $script:lastFishCheck = Get-Date
         if ($text -and ($text -match '[\u4e00-\u9fa5]' -or $text.Length -ge 4)) {
             Add-Content -LiteralPath $OutFile -Value ((Get-Date -Format 'HH:mm:ss') + "`t1`t" + $text) -Encoding UTF8
         }
+        # 识别结束，耳朵恢复空闲
+        try { Remove-Item -LiteralPath $BusyFile -Force -ErrorAction SilentlyContinue } catch { }
         Start-Sleep -Milliseconds 60
     } catch {
+        try { Remove-Item -LiteralPath $BusyFile -Force -ErrorAction SilentlyContinue } catch { }
         Add-Content -LiteralPath $ErrFile -Value ((Get-Date -Format 'HH:mm:ss') + '  ' + $_.Exception.Message) -Encoding UTF8
         Start-Sleep -Milliseconds 800
     }

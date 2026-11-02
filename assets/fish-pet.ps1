@@ -2444,11 +2444,8 @@ $timer.Add_Tick({
             try { Remove-Item -LiteralPath (Join-Path $DataDir 'asr.talking') -Force -ErrorAction SilentlyContinue } catch { }
             try { [IO.File]::WriteAllText((Join-Path $DataDir 'asr.pause'), (Get-Date).ToString('o')) } catch { }
             $script:speakEndAt = $null
-            # 鱼一说完立刻亮“在听…”，告诉主人可以开口
-            if ($script:chatOn -and -not $script:chatBusy) {
-                $script:lastIdleHint = Get-Date
-                Show-Bubble '在听…（说吧）'
-            }
+            # 不在这里立刻亮“在听…”，交由下面的空闲提示判断：只有耳朵真正空闲时才显示
+            $script:lastIdleHint = $null
         }
         # 看门狗：只在没有播放计时（合成失败/丢失回调）时兜底释放，避免把正在播放的锁提前解开
         $tkFile = Join-Path $DataDir 'asr.talking'
@@ -2487,11 +2484,15 @@ $timer.Add_Tick({
             } catch { }
         }
 
-        # 空闲时常驻“在听…”，回复后 3 秒内让位给回复气泡
+        # 空闲时常驻“在听…”，但只在耳朵真正空闲时显示：没在接话、没在识别、说完的暂停期已过
         if ($script:chatOn -and -not $script:chatBusy -and -not (Test-Path (Join-Path $DataDir 'asr.talking'))) {
+            $busyFile = Join-Path $DataDir 'asr.busy'
+            $pauseFile = Join-Path $DataDir 'asr.pause'
+            $busyOk = -not (Test-Path $busyFile)
+            $pauseOk = (-not (Test-Path $pauseFile)) -or (((Get-Date) - (Get-Item $pauseFile).LastWriteTime).TotalSeconds -gt 0.8)
             $quiet = (-not $script:lastReplyAt) -or (((Get-Date) - $script:lastReplyAt).TotalSeconds -gt 3)
             $due = (-not $script:lastIdleHint) -or (((Get-Date) - $script:lastIdleHint).TotalSeconds -gt 3)
-            if ($quiet -and $due) {
+            if ($busyOk -and $pauseOk -and $quiet -and $due) {
                 $script:lastIdleHint = Get-Date
                 Show-Bubble '在听…'
             }
