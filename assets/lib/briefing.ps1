@@ -39,7 +39,7 @@ function Get-TodayNotes {
 function Get-SessionDigest {
     $lines = @()
     try {
-        $digestScript = Join-Path (Split-Path -Parent $PSCommandPath) 'session-digest.mjs'
+        $digestScript = Join-Path (Split-Path -Parent (Split-Path -Parent $PSCommandPath)) 'session-digest.mjs'
         if (-not (Test-Path $digestScript)) { return $lines }
         $json = & node $digestScript 'today' 2>$null
         $jsonText = (@($json) -join '')
@@ -120,7 +120,7 @@ function Handle-DroppedFile([string]$path) {
             Speak-Text $ans
             return
         }
-        $py = Join-Path (Split-Path -Parent $PSCommandPath) 'read_file.py'
+        $py = Join-Path (Split-Path -Parent (Split-Path -Parent $PSCommandPath)) 'read_file.py'
         if (-not (Test-Path $py)) { Show-Bubble '缺读取脚本'; return }
         $json = & python $py $path 2>$null
         $obj = $null
@@ -210,7 +210,7 @@ function Generate-Gongwen([string]$raw) {
         $dir = Join-Path $base '公文'
         if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
         $out = Join-Path $dir ('公文-' + (Get-Date -Format 'yyyyMMdd-HHmmss') + '.docx')
-        $py = Join-Path (Split-Path -Parent $PSCommandPath) 'docx_export.py'
+        $py = Join-Path (Split-Path -Parent (Split-Path -Parent $PSCommandPath)) 'docx_export.py'
         $payload = @{ title = $title; paragraphs = $paras } | ConvertTo-Json -Depth 5 -Compress
         $pf = Join-Path $DataDir 'gongwen-payload.json'
         [IO.File]::WriteAllText($pf, $payload, (New-Object Text.UTF8Encoding($false)))
@@ -250,7 +250,7 @@ function Show-Briefing {
             $briefDir = Get-BriefingDir
             if (-not (Test-Path $briefDir)) { New-Item -ItemType Directory -Force -Path $briefDir | Out-Null }
             $docxOut = Join-Path $briefDir ('工作简报-' + (Get-Date).ToString('yyyy-MM-dd') + '.docx')
-            $pyScript = Join-Path (Split-Path -Parent $PSCommandPath) 'briefing_docx.py'
+            $pyScript = Join-Path (Split-Path -Parent (Split-Path -Parent $PSCommandPath)) 'briefing_docx.py'
             if (Test-Path $pyScript) {
                 $payload = @{
                     date = (Get-Date).ToString('yyyy-MM-dd')

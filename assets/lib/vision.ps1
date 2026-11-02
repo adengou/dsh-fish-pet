@@ -212,6 +212,3 @@ function Analyze-UnderCursor {
     } catch { Write-Err ('ANALYZE-ERR ' + $_.Exception.Message) }
 }
 
-# 流水线调度：边合成边播
-$script:ttsTimer = New-Object System.Windows.Forms.Timer
-$script:ttsTimer.Interval = 90
