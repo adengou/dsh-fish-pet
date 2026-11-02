@@ -106,10 +106,20 @@ $miQuit   = $menu.Items.Add('让它游走（退出）')
 # 菜单最下面显示版本号（灰色不可点）
 $script:petVersion = 'dev'
 try {
-    $pj = Join-Path (Split-Path -Parent $PSScriptRoot) 'package.json'
-    if (Test-Path $pj) { $script:petVersion = [string](Get-Content $pj -Raw -Encoding UTF8 | ConvertFrom-Json).version }
+    # 菜单在 lib\ 下，package.json 在插件根目录：逐级往上找
+    $cands = @()
+    $d1 = Split-Path -Parent $PSScriptRoot                 # assets
+    $d2 = if ($d1) { Split-Path -Parent $d1 } else { '' }  # 插件根
+    if ($d1) { $cands += (Join-Path $d1 'package.json') }
+    if ($d2) { $cands += (Join-Path $d2 'package.json') }
+    foreach ($c in $cands) {
+        if ($c -and (Test-Path $c)) {
+            $script:petVersion = [string](Get-Content $c -Raw -Encoding UTF8 | ConvertFrom-Json).version
+            break
+        }
+    }
 } catch { }
 if (-not $script:petVersion) { $script:petVersion = 'dev' }
 $menu.Items.Add((New-Object System.Windows.Forms.ToolStripSeparator)) | Out-Null
-$miVersion = $menu.Items.Add('版本 v' + $script:petVersion)
+$miVersion = $menu.Items.Add('版本：v' + $script:petVersion)
 $miVersion.Enabled = $false
