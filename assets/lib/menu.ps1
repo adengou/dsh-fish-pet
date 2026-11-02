@@ -100,6 +100,13 @@ $miDsh = $menu.Items.Add('交给 DSH 助手…')
 $miRemind = $menu.Items.Add('加个提醒…')
 $miRemindList = $menu.Items.Add('提醒清单…')
 $menu.Items.Add((New-Object System.Windows.Forms.ToolStripSeparator)) | Out-Null
+$miLive   = $menu.Items.Add('直播模式：关')
+$miLive.Add_Click({
+    try {
+        if ($script:liveOn) { Stop-Live | Out-Null; $miLive.Text = '直播模式：关' }
+        else { Start-Live | Out-Null; $miLive.Text = '直播模式：开' }
+    } catch { }
+})
 $miClear  = $menu.Items.Add('清除记忆…')
 $miQuit   = $menu.Items.Add('让它游走（退出）')
 
