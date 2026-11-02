@@ -1013,12 +1013,17 @@ $timer.Add_Tick({
 
         }
 
-        # 弹完了，处理排队中的对话（不打断正在进行的聊天）
+        # 弹完了，处理排队中的请求（按类型分派：点歌 / 聊天）
         if ($script:musicQueue.Count -gt 0 -and -not (Test-MusicBusy) -and -not $script:chatBusy) {
-            $nextText = [string]$script:musicQueue[0]
+            $item = $script:musicQueue[0]
             $script:musicQueue = @($script:musicQueue | Select-Object -Skip 1)
-            Write-Err ('MUSIC-RESUME ' + $nextText)
-            try { Start-Chat $nextText } catch { }
+            $kind = 'chat'; $txt = ''
+            if ($item -is [string]) { $txt = $item }
+            else { $kind = [string]$item.kind; $txt = [string]$item.text }
+            if (-not $kind) { $kind = 'chat' }
+            Write-Err ('MUSIC-RESUME ' + $kind + ' ' + $txt)
+            if ($kind -eq 'music') { try { Start-Music $txt | Out-Null } catch { } }
+            else { try { Start-Chat $txt } catch { } }
         }
 
         # 脉动回归

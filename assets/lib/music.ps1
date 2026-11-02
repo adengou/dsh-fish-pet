@@ -142,7 +142,7 @@ $script:musicQueue = @()   # 弹奏期间收到的对话，弹完再处理
 function Request-Music([string]$songName) {
     # 正在弹或正在合成时，排队而不是打断
     if (Test-MusicBusy) {
-        $script:musicQueue = @($script:musicQueue) + @($songName)
+        $script:musicQueue = @($script:musicQueue) + @([pscustomobject]@{ kind = 'music'; text = $songName })
         Show-Bubble '这首还没弹完，排后面去～'
         Write-Err ('MUSIC-DEFER ' + $songName)
         return $true

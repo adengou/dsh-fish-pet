@@ -46,7 +46,7 @@ function Start-Chat([string]$text) {
     # 曲子没弹完不打断：先排队，弹完再处理（"别弹/停止"除外）
     if (Test-MusicBusy) {
         if ($text -notmatch '别弹|不要弹|停止|安静|闭嘴|$stop|[Ss]top') {
-            $script:musicQueue = @($script:musicQueue) + @($text)
+            $script:musicQueue = @($script:musicQueue) + @([pscustomobject]@{ kind = 'chat'; text = $text })
             Show-Bubble '人家还在弹呢，等弹完再理你～'
             Write-Err ('MUSIC-DEFER ' + $text)
             return
