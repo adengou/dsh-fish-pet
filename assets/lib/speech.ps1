@@ -273,7 +273,7 @@ $script:ttsTimer.Add_Tick({
             $pendingN = 0
             for ($q3 = 0; $q3 -lt $script:ttsSegReq.Count; $q3++) { if ($script:ttsSegReq[$q3] -and -not $script:ttsSegDone[$q3]) { $pendingN++ } }
             # 超时 = 基础 8 秒 + 文本长度 + 队列里每个未完成请求 2 秒（并发排队也要算进去）
-            $waitSec = 8 + [Math]::Min(22, [int]($script:ttsSegs[$i].Length * 0.06)) + ($pendingN * 2)
+            $waitSec = 12 + [Math]::Min(30, [int]($script:ttsSegs[$i].Length * 0.08)) + ($pendingN * 3)
             if (-not $hit -and $script:ttsSegReqAt -and $script:ttsSegReqAt.Count -gt $i -and $script:ttsSegReqAt[$i] -and ((Get-Date) - $script:ttsSegReqAt[$i]).TotalSeconds -gt $waitSec) {
                 Write-Err ('TTS-SEG-TIMEOUT idx=' + $i)
                 $hit = 'TIMEOUT'
