@@ -722,6 +722,7 @@ $miBriefNow = $menu.Items.Add('现在简报一次')
 $miBriefRecent = New-Object System.Windows.Forms.ToolStripMenuItem('最近简报')
 $menu.Items.Add($miBriefRecent) | Out-Null
 $miDictate = $menu.Items.Add('口述公文：开始')
+$miDsh = $menu.Items.Add('交给 DSH 助手…')
 $miRemind = $menu.Items.Add('加个提醒…')
 $miRemindList = $menu.Items.Add('提醒清单…')
 $miClear  = $menu.Items.Add('清除记忆…')
@@ -1131,6 +1132,8 @@ function Open-Chat {
 . (Join-Path (Split-Path -Parent $PSCommandPath) 'lib\chat.ps1')
 # 诗歌/奏乐模块，实现在 lib\music.ps1
 . (Join-Path (Split-Path -Parent $PSCommandPath) 'lib\music.ps1')
+# 鱼 -> DSH 转交任务模块，实现在 lib\dsh.ps1
+. (Join-Path (Split-Path -Parent $PSCommandPath) 'lib\dsh.ps1')
 
 $script:chatTimer = New-Object System.Windows.Forms.Timer
 $script:chatTimer.Interval = 120
@@ -1299,7 +1302,9 @@ $miDictate.Add_Click({
             Show-Bubble '你说，我记着，说完再点一次'
         }
     } catch { Write-Err ('DICTATE-ERR ' + $_.Exception.Message) }
-})
+})
+$miDsh.Add_Click({ Show-DshTaskInput })
+
 $miRemind.Add_Click({ Show-Reminder })
 $miRemindList.Add_Click({ Show-ReminderList })
 $miClear.Add_Click({
@@ -1512,6 +1517,7 @@ $timer.Add_Tick({
                     }
                     $text = $parts[2].Trim()
                     if ($text -match '提醒我|记一下|别忘了|帮我记') { try { Create-ReminderFromText $text } catch { }; continue }
+                    if ($text -match '让DSH|交给DSH|让DSH助手|让代理') { try { Send-DshTask $text } catch { }; continue }
                     if ($text -match '^(知道了|收到|好的|好，知道了|不用提醒了|行了)。?$') {
                         try {
                             $arr = @(Load-Notes)
