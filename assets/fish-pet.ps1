@@ -54,6 +54,7 @@ function Load-Config {
         voice   = [ordered]@{ silenceGate = 1200; boost = 1; engine = 'cloud'; localConf = 0.55 }
         tts     = [ordered]@{ engine = 'edge'; voice = 'zh-CN-XiaoyiNeural'; rate = '+12%'; pitch = '+10Hz'; voiceEn = 'en-US-AnaNeural'; rateEn = '+8%'; pitchEn = '+15Hz'; ffmpeg = '' }
         ui      = [ordered]@{ lang = 'zh' }
+        briefing = [ordered]@{ enabled = $true; time = '07:30'; cityCode = '101301301'; dir = 'F:\桌宠' }
     }
     $script:cfg = $def
     try {
@@ -68,6 +69,12 @@ function Load-Config {
         if ($j.voice) {
             if ($j.voice.silenceGate) { $script:cfg.voice.silenceGate = [int]$j.voice.silenceGate }
             if ($j.voice.boost) { $script:cfg.voice.boost = [int]$j.voice.boost }
+        }
+        if ($j.briefing) {
+            if ($null -ne $j.briefing.enabled) { $script:cfg.briefing.enabled = [bool]$j.briefing.enabled }
+            if ($j.briefing.time) { $script:cfg.briefing.time = [string]$j.briefing.time }
+            if ($j.briefing.cityCode) { $script:cfg.briefing.cityCode = [string]$j.briefing.cityCode }
+            if ($j.briefing.dir) { $script:cfg.briefing.dir = [string]$j.briefing.dir }
         }
     } catch { $script:cfg = $def }
 }
@@ -210,6 +217,82 @@ public class FishPetWindow : Form
 "@
 Add-Type -TypeDefinition $cs -ReferencedAssemblies 'System.Drawing','System.Windows.Forms','System'
 
+# 窗口拾取：把鱼拖到哪个窗口上就认出哪个窗口（截图问答用）
+Add-Type -ReferencedAssemblies 'System.Drawing','System.Windows.Forms','System' -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+using System.Text;
+
+public class WinPick
+{
+    public static string LastDebug = "";
+    [DllImport("user32.dll")] public static extern IntPtr WindowFromPoint(POINT p);
+    [DllImport("user32.dll")] public static extern IntPtr GetAncestor(IntPtr h, uint ga);
+    [DllImport("user32.dll")] public static extern IntPtr GetWindow(IntPtr h, uint cmd);
+    [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h, out RECT r);
+    [DllImport("user32.dll")] public static extern int GetWindowText(IntPtr h, StringBuilder s, int n);
+    [DllImport("user32.dll")] public static extern int GetClassName(IntPtr h, StringBuilder s, int n);
+    [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr h);
+    [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
+
+    [StructLayout(LayoutKind.Sequential)] public struct POINT { public int X; public int Y; }
+    [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left; public int Top; public int Right; public int Bottom; }
+
+    public static string Pick(int x, int y, IntPtr self, uint selfPid)
+    {
+        var pt = new POINT { X = x, Y = y };
+        IntPtr h = WindowFromPoint(pt);
+        if (h == IntPtr.Zero) return null;
+        IntPtr root = GetAncestor(h, 2);
+        if (root != IntPtr.Zero) h = root;
+        uint hp;
+        GetWindowThreadProcessId(h, out hp);
+        var c0 = new StringBuilder(256);
+        GetClassName(h, c0, 256);
+        string cls0 = c0.ToString();
+        bool initialSkip = (hp == selfPid) || cls0 == "Progman" || cls0 == "WorkerW" || cls0 == "Shell_TrayWnd" || cls0 == "Shell_SecondaryTrayWnd";
+        if (initialSkip)
+        {
+            IntPtr next = GetWindow(h, 2);
+            int guard = 0;
+            while (next != IntPtr.Zero && guard < 200)
+            {
+                uint np;
+                GetWindowThreadProcessId(next, out np);
+                var c2 = new StringBuilder(256);
+                GetClassName(next, c2, 256);
+                string cls2 = c2.ToString();
+                RECT r2;
+                GetWindowRect(next, out r2);
+                int rw = r2.Right - r2.Left;
+                int rh = r2.Bottom - r2.Top;
+                bool skip = (np == selfPid) || !IsWindowVisible(next) || rw <= 0 || rh <= 0 || cls2 == "Progman" || cls2 == "WorkerW" || cls2 == "Shell_TrayWnd" || cls2 == "Shell_SecondaryTrayWnd";
+                if (LastDebug.Length < 400) { LastDebug = LastDebug + "[" + cls2 + " pid=" + np + " vis=" + IsWindowVisible(next) + " " + rw + "x" + rh + "]"; }
+                if (!skip) { h = next; break; }
+                next = GetWindow(next, 2);
+                guard++;
+            }
+            uint hp2;
+            GetWindowThreadProcessId(h, out hp2);
+            if (hp2 == selfPid) return null;
+        }
+        if (!IsWindowVisible(h)) return null;
+        var cn = new StringBuilder(256);
+        GetClassName(h, cn, 256);
+        string cls = cn.ToString();
+        if (cls == "Progman" || cls == "WorkerW" || cls == "Shell_TrayWnd" || cls == "Shell_SecondaryTrayWnd") return null;
+        var sb = new StringBuilder(512);
+        GetWindowText(h, sb, 512);
+        RECT r;
+        GetWindowRect(h, out r);
+        uint pid;
+        GetWindowThreadProcessId(h, out pid);
+        return h.ToString() + "\t" + sb.ToString() + "\t" + cls + "\t" + r.Left + "," + r.Top + "," + (r.Right - r.Left) + "," + (r.Bottom - r.Top) + "\t" + pid;
+    }
+}
+'@
+
+
 Add-Type -ReferencedAssemblies 'System.Drawing','System.Windows.Forms','System' -TypeDefinition @"
 using System;
 using System.Drawing;
@@ -339,6 +422,9 @@ $script:scale  = if ($Scale -gt 0) { $Scale } else { [double]$script:st.scale }
 $script:speed  = if ($Speed -gt 0) { [double]$Speed } else { 26.0 }
 $script:vx     = -$script:speed * $script:dir
 $script:paused = $false
+$script:lookOnDrag = $true
+$script:dictateOn = $false
+$script:dictateBuf = @()
 $script:dragging = $false
 $script:dragMoved = 0
 $script:dragOff = @{ x = 0; y = 0 }
@@ -555,6 +641,20 @@ $form = New-Object FishPetWindow
 
 $form.Show()
 $form.ShowNow()
+$form.AllowDrop = $true
+$form.Add_DragEnter({
+    param($s, $e)
+    try {
+        if ($e.Data.GetDataPresent([System.Windows.Forms.DataFormats]::FileDrop)) { $e.Effect = [System.Windows.Forms.DragDropEffects]::Copy } else { $e.Effect = [System.Windows.Forms.DragDropEffects]::None }
+    } catch { }
+})
+$form.Add_DragDrop({
+    param($s, $e)
+    try {
+        $files = @($e.Data.GetData([System.Windows.Forms.DataFormats]::FileDrop))
+        if ($files.Count -gt 0) { Handle-DroppedFile ([string]$files[0]) }
+    } catch { Write-Err ('DROP-ERR ' + $_.Exception.Message) }
+})
 $form.BringToFront()
 $pidJson = [ordered]@{ pid = $PID; startedAt = (Get-Date).ToString('o'); script = $PSCommandPath } | ConvertTo-Json -Compress
 [IO.File]::WriteAllText($PidPath, $pidJson, (New-Object Text.UTF8Encoding($false)))
@@ -687,6 +787,11 @@ $miHome   = $menu.Items.Add('回到右下角')
 $miBigger = $menu.Items.Add('长大一点')
 $miSmall  = $menu.Items.Add('变小一点')
 $menu.Items.Add((New-Object System.Windows.Forms.ToolStripSeparator)) | Out-Null
+$miBriefing = $menu.Items.Add('今日简报：开')
+$miBriefNow = $menu.Items.Add('现在简报一次')
+$miBriefRecent = New-Object System.Windows.Forms.ToolStripMenuItem('最近简报')
+$menu.Items.Add($miBriefRecent) | Out-Null
+$miDictate = $menu.Items.Add('口述公文：开始')
 $miRemind = $menu.Items.Add('加个提醒…')
 $miRemindList = $menu.Items.Add('提醒清单…')
 $miClear  = $menu.Items.Add('清除记忆…')
@@ -986,6 +1091,9 @@ function Update-MenuLang {
             Set-MenuItemText $miHome 'Back to corner'
             Set-MenuItemText $miBigger 'Grow bigger'
             Set-MenuItemText $miSmall 'Shrink'
+            Set-MenuItemText $miBriefing $(if ($script:cfg.briefing.enabled) { 'Daily briefing: on' } else { 'Daily briefing: off' })
+            Set-MenuItemText $miBriefNow 'Brief me now'
+            Set-MenuItemText $miBriefRecent 'Recent briefings'
             Set-MenuItemText $miRemind 'Add a reminder...'
             Set-MenuItemText $miRemindList 'Reminders...'
             Set-MenuItemText $miClear 'Clear memory...'
@@ -1005,6 +1113,9 @@ function Update-MenuLang {
             Set-MenuItemText $miHome '回到右下角'
             Set-MenuItemText $miBigger '长大一点'
             Set-MenuItemText $miSmall '变小一点'
+            Set-MenuItemText $miBriefing $(if ($script:cfg.briefing.enabled) { '今日简报：开' } else { '今日简报：关' })
+            Set-MenuItemText $miBriefNow '现在简报一次'
+            Set-MenuItemText $miBriefRecent '最近简报'
             Set-MenuItemText $miRemind '加个提醒…'
             Set-MenuItemText $miRemindList '提醒清单…'
             Set-MenuItemText $miClear '清除记忆…'
@@ -1473,6 +1584,432 @@ function Speak-Text([string]$text) {
         } catch { Write-Err ('TTS-EDGE-ERR ' + $_.Exception.Message) }
     }
     Speak-Sapi $text
+}
+
+# ---------- 今日简报（天气 + 今日提醒，交给鱼自己组织） ----------
+function Get-WeatherLine {
+    $code = '101301301'
+    try { if ($script:cfg.briefing.cityCode) { $code = [string]$script:cfg.briefing.cityCode } } catch { }
+    try {
+        $r = Invoke-RestMethod -Uri ('http://t.weather.itboy.net/api/weather/city/' + $code) -TimeoutSec 10
+        $f = $r.data.forecast[0]
+        $line = '今天' + $f.high + '/' + $f.low + '，' + $f.type + '，' + $f.fx + $f.fl
+        if ($f.notice) { $line = $line + '。' + $f.notice }
+        return $line
+    } catch { }
+    try {
+        $r2 = Invoke-RestMethod -Uri 'https://api.open-meteo.com/v1/forecast?latitude=21.4733&longitude=109.1193&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=Asia%2FShanghai&forecast_days=1' -TimeoutSec 12
+        return ('今天 ' + $r2.daily.temperature_2m_min[0] + '~' + $r2.daily.temperature_2m_max[0] + ' 度，降水概率 ' + $r2.daily.precipitation_probability_max[0] + '%')
+    } catch { }
+    return ''
+}
+
+function Get-TodayNotes {
+    $lines = @()
+    try {
+        $arr = @(Load-Notes)
+        $today = (Get-Date).ToString('yyyy-MM-dd')
+        foreach ($n in $arr) {
+            $dueStr = [string]$n.due
+            if (-not $dueStr) { continue }
+            try {
+                $d = [datetime]::Parse($dueStr)
+                if ($d.ToString('yyyy-MM-dd') -eq $today) { $lines += [string]$n.text }
+            } catch { }
+        }
+    } catch { }
+    return $lines
+}
+
+function Get-SessionDigest {
+    $lines = @()
+    try {
+        $digestScript = Join-Path (Split-Path -Parent $PSCommandPath) 'session-digest.mjs'
+        if (-not (Test-Path $digestScript)) { return $lines }
+        $json = & node $digestScript 'today' 2>$null
+        $jsonText = (@($json) -join '')
+        if ($jsonText) {
+            $parsed = $null
+            try { $parsed = ConvertFrom-Json -InputObject $jsonText } catch { $parsed = $null }
+            $arr = @()
+            if ($parsed) { $arr = @($parsed) }
+            foreach ($s in $arr) {
+                $t = [string]$s.title
+                $ms = ''
+                try { if ($s.msgs) { $ms = (@($s.msgs | Where-Object { $_ }) -join '；') } } catch { }
+                $line = $t
+                if ($ms) { $line = $line + '（最近做的事：' + $ms + '）' }
+                if ($line) { $lines += $line }
+            }
+            $lines = @($lines | Select-Object -Unique)
+        }
+    } catch { Write-Err ('DIGEST-ERR ' + $_.Exception.Message) }
+    return $lines
+}
+
+function Invoke-BriefingLlm([string]$material) {
+    try {
+        $key = Get-ApiKey
+        if (-not $key) { return $null }
+        if ($null -eq $script:briefHttp) {
+            $script:briefHttp = New-Object System.Net.Http.HttpClient
+            $script:briefHttp.Timeout = [TimeSpan]::FromSeconds(25)
+        }
+        $sys = '你是桌面宠物"大肥鱼"，向主人播报今日简报：用两三句话（80字以内），先概括今天在 DSH 里做的主要工作（挑 2~4 件主要的说，从会话标题和最近做的事归纳，别漏掉当前窗口做的事），再带一句天气或待办。语气俏皮、微微傲娇，称呼"主人"，不要表情符号，不要罗列格式。'
+        $body = @{ model = 'deepseek-flash'; messages = @(@{ role = 'system'; content = $sys }, @{ role = 'user'; content = $material }); max_tokens = 220; temperature = 0.8; thinking = @{ type = 'disabled' } } | ConvertTo-Json -Depth 6
+        $content = New-Object System.Net.Http.StringContent($body, [Text.Encoding]::UTF8, 'application/json')
+        $req = New-Object System.Net.Http.HttpRequestMessage([System.Net.Http.HttpMethod]::Post, 'https://api.deepseek.com/chat/completions')
+        $req.Headers.Authorization = New-Object System.Net.Http.Headers.AuthenticationHeaderValue('Bearer', $key)
+        $req.Content = $content
+        $resp = $script:briefHttp.SendAsync($req).GetAwaiter().GetResult()
+        $jsonText = $resp.Content.ReadAsStringAsync().GetAwaiter().GetResult()
+        $reply = [string](($jsonText | ConvertFrom-Json).choices[0].message.content)
+        if ($reply) { return $reply.Trim() }
+    } catch { Write-Err ('BRIEF-LLM-ERR ' + $_.Exception.Message) }
+    return $null
+}
+
+# ---------- 文件拖拽：拖到鱼身上，读摘要 ----------
+function Invoke-SummaryLlm([string]$fileName, [string]$text) {
+    try {
+        $key = Get-ApiKey
+        if (-not $key) { return $null }
+        if ($null -eq $script:sumHttp) {
+            $script:sumHttp = New-Object System.Net.Http.HttpClient
+            $script:sumHttp.Timeout = [TimeSpan]::FromSeconds(45)
+        }
+        $sys = '用一两句话（60字内）向主人概括这份文件的主要内容，中文口语化，不要报文件名和字数。'
+        $body = @{ model = 'deepseek-flash'; messages = @(@{ role = 'system'; content = $sys }, @{ role = 'user'; content = ('文件名：' + $fileName + "`n正文：`n" + $text) }); max_tokens = 150; temperature = 0.3; thinking = @{ type = 'disabled' } } | ConvertTo-Json -Depth 6
+        $c = New-Object System.Net.Http.StringContent($body, [Text.Encoding]::UTF8, 'application/json')
+        $req = New-Object System.Net.Http.HttpRequestMessage([System.Net.Http.HttpMethod]::Post, 'https://api.deepseek.com/chat/completions')
+        $req.Headers.Authorization = New-Object System.Net.Http.Headers.AuthenticationHeaderValue('Bearer', $key)
+        $req.Content = $c
+        $resp = $script:sumHttp.SendAsync($req).GetAwaiter().GetResult()
+        $jsonText = $resp.Content.ReadAsStringAsync().GetAwaiter().GetResult()
+        $reply = [string](($jsonText | ConvertFrom-Json).choices[0].message.content)
+        if ($reply) { return $reply.Trim() }
+    } catch { Write-Err ('SUM-ERR ' + $_.Exception.Message) }
+    return $null
+}
+
+function Handle-DroppedFile([string]$path) {
+    try {
+        if (-not (Test-Path $path)) { return }
+        $ext = [IO.Path]::GetExtension($path).ToLower()
+        $name = [IO.Path]::GetFileName($path)
+        Show-Bubble ('看看：' + $name)
+        if ($ext -in @('.png', '.jpg', '.jpeg', '.bmp', '.gif', '.webp')) {
+            $ans = Invoke-VisionLlm $path $name
+            if (-not $ans) { $ans = '这张图我看不太清' }
+            Show-Bubble $ans
+            Speak-Text $ans
+            return
+        }
+        $py = Join-Path (Split-Path -Parent $PSCommandPath) 'read_file.py'
+        if (-not (Test-Path $py)) { Show-Bubble '缺读取脚本'; return }
+        $json = & python $py $path 2>$null
+        $obj = $null
+        try { $obj = $json | ConvertFrom-Json } catch { }
+        if (-not $obj -or -not $obj.ok -or -not $obj.text) { Show-Bubble ('这个文件我读不出内容：' + $name); return }
+        $text = [string]$obj.text
+        if ($text.Length -gt 8000) { $text = $text.Substring(0, 8000) }
+        $ans = Invoke-SummaryLlm $name $text
+        if (-not $ans) { $ans = '这个文件我读不出重点' }
+        Show-Bubble $ans
+        Speak-Text $ans
+        Write-Err ('DROP-RECV name=' + $name + ' chars=' + $text.Length)
+    } catch { Write-Err ('DROP-FILE-ERR ' + $_.Exception.Message) }
+}
+
+# ---------- 语音备忘：从口述里解析时间并建提醒 ----------
+function Create-ReminderFromText([string]$text) {
+    try {
+        $key = Get-ApiKey
+        if (-not $key) { Show-Bubble '没有密钥，记不了提醒'; return }
+        if ($null -eq $script:remHttp) {
+            $script:remHttp = New-Object System.Net.Http.HttpClient
+            $script:remHttp.Timeout = [TimeSpan]::FromSeconds(30)
+        }
+        $nowStr = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss dddd')
+        $sys = '把主人的话解析成一条提醒。当前时间：' + $nowStr + '。输出 JSON：{"due":"YYYY-MM-DDTHH:mm:ss","text":"提醒内容"}。due 是提醒时间（按当前时间推算，例如"下午三点"=今天15:00，已过则明天15:00）；话里没有明确时间时 due 留空字符串。text 是简短提醒内容（20字内）。只输出 JSON。'
+        $body = @{ model = 'deepseek-flash'; messages = @(@{ role = 'system'; content = $sys }, @{ role = 'user'; content = $text }); max_tokens = 120; temperature = 0.2; thinking = @{ type = 'disabled' } } | ConvertTo-Json -Depth 6
+        $c = New-Object System.Net.Http.StringContent($body, [Text.Encoding]::UTF8, 'application/json')
+        $req = New-Object System.Net.Http.HttpRequestMessage([System.Net.Http.HttpMethod]::Post, 'https://api.deepseek.com/chat/completions')
+        $req.Headers.Authorization = New-Object System.Net.Http.Headers.AuthenticationHeaderValue('Bearer', $key)
+        $req.Content = $c
+        $resp = $script:remHttp.SendAsync($req).GetAwaiter().GetResult()
+        $jsonText = $resp.Content.ReadAsStringAsync().GetAwaiter().GetResult()
+        $reply = [string](($jsonText | ConvertFrom-Json).choices[0].message.content)
+        if (-not $reply) { return }
+        $clean = $reply -replace '(?s)^\s*```(?:json)?\s*', '' -replace '(?s)\s*```\s*$', ''
+        $obj = $null
+        try { $obj = $clean | ConvertFrom-Json } catch { }
+        if (-not $obj) { return }
+        $due = [string]$obj.due
+        $what = [string]$obj.text
+        if (-not $what) { $what = $text }
+        if (-not $due) {
+            Show-Bubble ('记下了：' + $what + '（没说时间）')
+            Speak-Text ('记下了，' + $what)
+            return
+        }
+        $arr = @(Load-Notes)
+        $arr += [ordered]@{ text = $what; due = $due; fired = $false }
+        [IO.File]::WriteAllText($script:notesPath, (ConvertTo-Json -InputObject @($arr) -Depth 4), (New-Object Text.UTF8Encoding($false)))
+        $dt = $null
+        try { $dt = [datetime]::Parse($due) } catch { }
+        $when = if ($dt) { $dt.ToString('MM月dd日 HH:mm') } else { $due }
+        Show-Bubble ('好的，' + $when + '提醒你：' + $what)
+        Speak-Text ('好的，' + $when + '提醒你：' + $what)
+        Write-Err ('REMIND-ADD due=' + $due + ' text=' + $what)
+    } catch { Write-Err ('REMIND-ERR ' + $_.Exception.Message) }
+}
+
+# ---------- 口述公文：把口述整理成公文并导出 Word ----------
+function Generate-Gongwen([string]$raw) {
+    try {
+        $key = Get-ApiKey
+        if (-not $key) { Show-Bubble '没有 DeepSeek 密钥，写不了'; return }
+        if ($null -eq $script:gongwenHttp) {
+            $script:gongwenHttp = New-Object System.Net.Http.HttpClient
+            $script:gongwenHttp.Timeout = [TimeSpan]::FromSeconds(60)
+        }
+        $sys = '你是机关公文写作助手。把主人的口述**改写成**一份规范中文公文，不是复述：1) 起一个准确、可用的标题；2) 提炼口述要点，按逻辑分层（一、二、三……），每层先写主旨句再展开；3) 语言庄重、简洁、书面化，去掉口语、重复和语气词；4) 只能使用口述中的事实、数字、单位，严禁编造或用套话填充没有的信息；5) 口述信息少时，就写得短而实，不要硬凑。只输出 JSON：{"title":"标题","paragraphs":["段落1","段落2"]}，不要其他文字。'
+        $body = @{ model = 'deepseek-flash'; messages = @(@{ role = 'system'; content = $sys }, @{ role = 'user'; content = $raw }); max_tokens = 900; temperature = 0.5; thinking = @{ type = 'disabled' } } | ConvertTo-Json -Depth 6
+        $content = New-Object System.Net.Http.StringContent($body, [Text.Encoding]::UTF8, 'application/json')
+        $req = New-Object System.Net.Http.HttpRequestMessage([System.Net.Http.HttpMethod]::Post, 'https://api.deepseek.com/chat/completions')
+        $req.Headers.Authorization = New-Object System.Net.Http.Headers.AuthenticationHeaderValue('Bearer', $key)
+        $req.Content = $content
+        $resp = $script:gongwenHttp.SendAsync($req).GetAwaiter().GetResult()
+        $jsonText = $resp.Content.ReadAsStringAsync().GetAwaiter().GetResult()
+        $reply = [string](($jsonText | ConvertFrom-Json).choices[0].message.content)
+        if (-not $reply) { Show-Bubble '模型没返回内容'; return }
+        $clean = $reply -replace '(?s)^\s*```(?:json)?\s*', '' -replace '(?s)\s*```\s*$', ''
+        $obj = $null
+        try { $obj = $clean | ConvertFrom-Json } catch { }
+        if (-not $obj) { Show-Bubble '整理结果解析失败'; return }
+        $title = [string]$obj.title
+        $paras = @($obj.paragraphs | Where-Object { $_ })
+        if ($paras.Count -eq 0) { Show-Bubble '整理结果为空'; return }
+        $base = Split-Path (Get-BriefingDir) -Parent
+        $dir = Join-Path $base '公文'
+        if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
+        $out = Join-Path $dir ('公文-' + (Get-Date -Format 'yyyyMMdd-HHmmss') + '.docx')
+        $py = Join-Path (Split-Path -Parent $PSCommandPath) 'docx_export.py'
+        $payload = @{ title = $title; paragraphs = $paras } | ConvertTo-Json -Depth 5 -Compress
+        $pf = Join-Path $DataDir 'gongwen-payload.json'
+        [IO.File]::WriteAllText($pf, $payload, (New-Object Text.UTF8Encoding($false)))
+        & python $py $pf $out 2>$null | Out-Null
+        if (Test-Path $out) {
+            Show-Bubble ('写好了：' + $out)
+            Speak-Text '公文写好了，主人看看'
+            Write-Err ('GONGWEN saved=' + $out)
+        } else { Show-Bubble 'Word 生成失败' }
+    } catch { Write-Err ('GONGWEN-ERR ' + $_.Exception.Message); Show-Bubble '写的时候出错了' }
+}
+
+function Get-BriefingDir {
+    $dir = ''
+    try { $dir = [string]$script:cfg.briefing.dir } catch { }
+    if (-not $dir) { $dir = 'F:\桌宠' }
+    if (-not (Test-Path $dir)) { try { New-Item -ItemType Directory -Force -Path $dir | Out-Null } catch { } }
+    return $dir
+}
+
+function Show-Briefing {
+    try {
+        $material = @()
+        $digest = @(Get-SessionDigest)
+        if ($digest.Count -gt 0) { $material += ('今天在 DSH 里做的工作（会话标题）：' + ($digest -join '；')) }
+        $w = Get-WeatherLine
+        if ($w) { $material += ('天气：' + $w) }
+        $notes = @(Get-TodayNotes)
+        if ($notes.Count -gt 0) { $material += ('今天要办的事：' + ($notes -join '；')) } else { $material += '今天没有待办提醒。' }
+        $txt = Invoke-BriefingLlm (($material -join "`n") + "`n请用一句话播报给主人。")
+        if (-not $txt) { $txt = '主人早呀，' + ($material -join '。') }
+        Show-Bubble $txt
+        Speak-Text $txt
+        Write-Err ('BRIEFING done len=' + $txt.Length)
+        # 按日期存一份 DOCX 到 桌面\每日简报，方便以后查阅
+        try {
+            $briefDir = Get-BriefingDir
+            if (-not (Test-Path $briefDir)) { New-Item -ItemType Directory -Force -Path $briefDir | Out-Null }
+            $docxOut = Join-Path $briefDir ('工作简报-' + (Get-Date).ToString('yyyy-MM-dd') + '.docx')
+            $pyScript = Join-Path (Split-Path -Parent $PSCommandPath) 'briefing_docx.py'
+            if (Test-Path $pyScript) {
+                $payload = @{
+                    date = (Get-Date).ToString('yyyy-MM-dd')
+                    sessions = @($digest)
+                    weather = [string]$w
+                    notes = @($notes)
+                    speech = $txt
+                } | ConvertTo-Json -Depth 5 -Compress
+                $payloadFile = Join-Path $DataDir 'briefing-payload.json'
+                [IO.File]::WriteAllText($payloadFile, $payload, (New-Object Text.UTF8Encoding($false)))
+                & python $pyScript $payloadFile $docxOut 2>$null | Out-Null
+                if (Test-Path $docxOut) { Write-Err ('BRIEF-DOCX ' + $docxOut) }
+            }
+        } catch { Write-Err ('BRIEF-DOCX-ERR ' + $_.Exception.Message) }
+    } catch { Write-Err ('BRIEF-ERR ' + $_.Exception.Message) }
+}
+
+# 最近 5 天简报：每次打开菜单前重建子项，点一下用默认程序（WPS）打开
+function Update-RecentBriefs {
+    try {
+        if ($null -eq $miBriefRecent) { return }
+        $miBriefRecent.DropDownItems.Clear()
+        $dir = Get-BriefingDir
+        $files = @()
+        if (Test-Path $dir) { $files = @(Get-ChildItem $dir -Filter '工作简报-*.docx' -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 5) }
+        if ($files.Count -eq 0) {
+            $none = $miBriefRecent.DropDownItems.Add('（还没有简报）')
+            $none.Enabled = $false
+            return
+        }
+        foreach ($f in $files) {
+            $label = [string]$f.BaseName
+            if ($label -match '工作简报-(.+)') { $label = $Matches[1] }
+            $it = $miBriefRecent.DropDownItems.Add($label)
+            $it.Tag = [string]$f.FullName
+            $it.Add_Click({
+                param($s, $e)
+                try { Start-Process -FilePath ([string]$s.Tag) } catch { Write-Err ('BRIEF-OPEN-ERR ' + $_.Exception.Message) }
+            })
+        }
+    } catch { }
+}
+
+
+# ---------- 截图问答：把鱼拖到窗口上，让鱼看一眼 ----------
+function Capture-Window([string]$info) {
+    try {
+        $parts = $info -split "`t"
+        if ($parts.Count -lt 4) { return $null }
+        $rect = $parts[3] -split ','
+        $l = [int]$rect[0]; $t = [int]$rect[1]; $w = [int]$rect[2]; $h = [int]$rect[3]
+        if ($w -le 20 -or $h -le 20) { return $null }
+        # 裁剪窗口中心区域：去掉标题栏、工具栏、侧边栏，让正文更大更清楚
+        $cl = $l + [int]($w * 0.10)
+        $ct = $t + [int]($h * 0.12)
+        $cw = [Math]::Max(20, [int]($w * 0.80))
+        $ch = [Math]::Max(20, [int]($h * 0.76))
+        $maxSide = 800
+        $scale = [Math]::Min(1.0, [Math]::Min($maxSide / [double]$cw, $maxSide / [double]$ch))
+        $bmp = New-Object System.Drawing.Bitmap($cw, $ch)
+        $g = [System.Drawing.Graphics]::FromImage($bmp)
+        $g.CopyFromScreen($cl, $ct, 0, 0, (New-Object System.Drawing.Size($cw, $ch)))
+        $g.Dispose()
+        $out = Join-Path $DataDir ('shot-' + (Get-Date -Format 'yyyyMMdd-HHmmss') + '.png')
+        if ($scale -lt 1.0) {
+            $nw = [Math]::Max(1, [int]($cw * $scale)); $nh = [Math]::Max(1, [int]($ch * $scale))
+            $bmp2 = New-Object System.Drawing.Bitmap($nw, $nh)
+            $g2 = [System.Drawing.Graphics]::FromImage($bmp2)
+            $g2.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+            $g2.DrawImage($bmp, 0, 0, $nw, $nh)
+            $g2.Dispose()
+            $bmp.Dispose()
+            $bmp2.Save($out, [System.Drawing.Imaging.ImageFormat]::Png)
+            $bmp2.Dispose()
+        } else {
+            $bmp.Save($out, [System.Drawing.Imaging.ImageFormat]::Png)
+            $bmp.Dispose()
+        }
+        return $out
+    } catch { Write-Err ('SHOT-ERR ' + $_.Exception.Message); return $null }
+}
+
+function Invoke-VisionLlm([string]$imagePath, [string]$title) {
+    try {
+        $key = Get-ApiKey
+        if (-not $key) { return $null }
+        if ((Get-Item $imagePath).Length -gt 1048576) { return '这张图有点大，我看不清' }
+        $b64 = [Convert]::ToBase64String([IO.File]::ReadAllBytes($imagePath))
+        if ($null -eq $script:visionHttp) {
+            $script:visionHttp = New-Object System.Net.Http.HttpClient
+            $script:visionHttp.Timeout = [TimeSpan]::FromSeconds(40)
+        }
+        $what = if ($title) { '窗口（标题：' + $title + '）' } else { '屏幕画面' }
+        $q = '这是电脑上的' + $what + '。看图回答主人：如果里面是文字，读出标题和关键内容；如果是图片，描述画面（人物、风景、物品、颜色）。中文口语化，40字以内。'
+        $arr = @(
+            @{ type = 'text'; text = $q },
+            @{ type = 'image_url'; image_url = @{ url = ('data:image/png;base64,' + $b64) } }
+        )
+        $body = @{ model = 'deepseek-flash'; messages = @( @{ role = 'user'; content = $arr } ); max_tokens = 120; temperature = 0.3; thinking = @{ type = 'disabled' } } | ConvertTo-Json -Depth 10
+        $content = New-Object System.Net.Http.StringContent($body, [Text.Encoding]::UTF8, 'application/json')
+        $req = New-Object System.Net.Http.HttpRequestMessage([System.Net.Http.HttpMethod]::Post, 'https://api.deepseek.com/chat/completions')
+        $req.Headers.Authorization = New-Object System.Net.Http.Headers.AuthenticationHeaderValue('Bearer', $key)
+        $req.Content = $content
+        $resp = $script:visionHttp.SendAsync($req).GetAwaiter().GetResult()
+        $jsonText = $resp.Content.ReadAsStringAsync().GetAwaiter().GetResult()
+        $reply = [string](($jsonText | ConvertFrom-Json).choices[0].message.content)
+        if ($reply) { return $reply.Trim() }
+    } catch { Write-Err ('VISION-ERR ' + $_.Exception.Message) }
+    return $null
+}
+
+function Capture-AtCursor([int]$px, [int]$py) {
+    try {
+        $wa2 = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
+        $cw = 900; $ch = 600
+        $cl = [Math]::Max($wa2.Left, $px - [int]($cw / 2))
+        $ct = [Math]::Max($wa2.Top, $py - [int]($ch / 2))
+        if (($cl + $cw) -gt $wa2.Right) { $cl = $wa2.Right - $cw }
+        if (($ct + $ch) -gt $wa2.Bottom) { $ct = $wa2.Bottom - $ch }
+        if ($cl -lt $wa2.Left) { $cl = $wa2.Left }
+        if ($ct -lt $wa2.Top) { $ct = $wa2.Top }
+        $wasVisible = $false
+        try { $wasVisible = $form.Visible; $form.Hide() } catch { }
+        Start-Sleep -Milliseconds 160
+        $bmp = New-Object System.Drawing.Bitmap($cw, $ch)
+        $g = [System.Drawing.Graphics]::FromImage($bmp)
+        $g.CopyFromScreen($cl, $ct, 0, 0, (New-Object System.Drawing.Size($cw, $ch)))
+        $g.Dispose()
+        if ($wasVisible) { try { $form.Show() } catch { } }
+        $out = Join-Path $DataDir ('shot-' + (Get-Date -Format 'yyyyMMdd-HHmmss') + '.png')
+        $bmp.Save($out, [System.Drawing.Imaging.ImageFormat]::Png)
+        $bmp.Dispose()
+        return $out
+    } catch {
+        try { $form.Show() } catch { }
+        Write-Err ('SHOT2-ERR ' + $_.Exception.Message)
+        return $null
+    }
+}
+
+function Analyze-UnderCursor {
+    try {
+        if (-not $script:lookOnDrag) { return }
+        $pos = [System.Windows.Forms.Cursor]::Position
+        $myPid = [uint32][System.Diagnostics.Process]::GetCurrentProcess().Id
+        $title = ''
+        $info = $null
+        try { $info = [WinPick]::Pick($pos.X, $pos.Y, $form.Handle, $myPid) } catch { }
+        if ($info) {
+            $parts = $info -split "`t"
+            if ($parts.Count -ge 2) { $title = [string]$parts[1] }
+            if (-not $title -and $parts.Count -ge 3) { $title = [string]$parts[2] }
+        }
+        $key2 = ('{0}x{1}' -f [int]($pos.X / 50), [int]($pos.Y / 50))
+        $now = Get-Date
+        if ($script:lastShotWin -eq $key2 -and ($null -ne $script:lastShotAt) -and ($now - $script:lastShotAt).TotalSeconds -lt 15) { return }
+        $script:lastShotWin = $key2
+        $script:lastShotAt = $now
+        # 认得出窗口就截窗口（带标题、裁掉工具栏）；认不出就截鼠标周围那片屏幕
+        $png = $null
+        $via = 'area'
+        if ($info) {
+            $png = Capture-Window $info
+            if ($png) { $via = 'window' }
+        }
+        if (-not $png) { $png = Capture-AtCursor $pos.X $pos.Y }
+        if (-not $png) { return }
+        Show-Bubble '让我看看…'
+        $ans = Invoke-VisionLlm $png $title
+        if (-not $ans) { $ans = '这块画面我看不太清' }
+        Show-Bubble $ans
+        Speak-Text $ans
+        Write-Err ("SHOT saved=" + $png + " title=" + $title + " via=" + $via)
+    } catch { Write-Err ('ANALYZE-ERR ' + $_.Exception.Message) }
 }
 
 # 流水线调度：边合成边播
@@ -2121,6 +2658,8 @@ $form.Add_MouseUp({
             if ([int]$script:x -ne $script:lastPx -or [int]$script:y -ne $script:lastPy) { $form.SetBounds([int]$script:x, [int]$script:y, $W, $H); $script:lastPx = [int]$script:x; $script:lastPy = [int]$script:y }
         }
         if (-not $wasDrag) { Invoke-Feed }
+        if ($wasDrag) { Write-Err ("DRAGUP moved=" + $script:dragMoved + " look=" + $script:lookOnDrag) }
+        if ($wasDrag -and $script:lookOnDrag -and $script:dragMoved -gt 12) { try { Analyze-UnderCursor } catch { } }
         Save-State
     }
 })
@@ -2137,6 +2676,7 @@ $script:menuTimer.Add_Tick({
         try { foreach ($k2 in @($script:voiceItemMap.Keys)) { $script:voiceItemMap[$k2].Checked = ([string]$k2 -eq [string]$script:ttsVoice) } } catch { }
         try { Update-MenuLang } catch { }
         try { $miBalance.Text = Get-BalanceText } catch { }
+        try { Update-RecentBriefs } catch { }
         $menu.Show($script:menuScreenPt)
     } catch { Write-Err 'MENU-SHOW-ERR'; try { if ($script:menuResume) { $timer.Start(); $script:menuResume = $false }; $script:menuHold = $false } catch { } }
 })
@@ -2157,6 +2697,42 @@ $miWake.Add_Click({
     if ($script:autoOn) { Start-Auto; try { Update-MenuLang } catch { } } else { try { if ($script:rec) { $script:rec.RecognizeAsyncCancel() } } catch { }; BackToWake; try { Update-MenuLang } catch { } }
 })
 $miType.Add_Click({ Show-Input })
+$miBriefing.Add_Click({
+    try {
+        $script:cfg.briefing.enabled = -not [bool]$script:cfg.briefing.enabled
+        try {
+            $cfgPath2 = Join-Path $DataDir 'config.json'
+            if (Test-Path $cfgPath2) {
+                $j = [IO.File]::ReadAllText($cfgPath2, [Text.Encoding]::UTF8) | ConvertFrom-Json
+                if (-not $j.briefing) { $j | Add-Member -NotePropertyName briefing -NotePropertyValue ([ordered]@{ enabled = $true; time = '07:30'; cityCode = '101301301' }) }
+                $j.briefing.enabled = [bool]$script:cfg.briefing.enabled
+                [IO.File]::WriteAllText($cfgPath2, ($j | ConvertTo-Json -Depth 6), (New-Object Text.UTF8Encoding($false)))
+            }
+        } catch { }
+        try { Update-MenuLang } catch { }
+    } catch { }
+})
+$miBriefNow.Add_Click({
+    try { Update-MenuLang } catch { }
+    Show-Briefing
+})
+$miDictate.Add_Click({
+    try {
+        if ($script:dictateOn) {
+            $script:dictateOn = $false
+            try { $miDictate.Text = '口述公文：开始' } catch { }
+            $raw = (@($script:dictateBuf) -join '')
+            if (-not $raw) { Show-Bubble '刚才没记到内容'; return }
+            Show-Bubble '我理一理…'
+            Generate-Gongwen $raw
+        } else {
+            $script:dictateOn = $true
+            $script:dictateBuf = @()
+            try { $miDictate.Text = '口述公文：结束' } catch { }
+            Show-Bubble '你说，我记着，说完再点一次'
+        }
+    } catch { Write-Err ('DICTATE-ERR ' + $_.Exception.Message) }
+})
 $miRemind.Add_Click({ Show-Reminder })
 $miRemindList.Add_Click({ Show-ReminderList })
 $miClear.Add_Click({
@@ -2362,7 +2938,26 @@ $timer.Add_Tick({
                 } elseif ($parts.Count -ge 2 -and $parts[1] -eq '?') {
                     if (-not $script:chatBusy) { Show-Bubble '（没听清，再说一遍嘛）' }
                 } elseif ($parts.Count -ge 3 -and $parts[1] -eq '1') {
+                    if ($script:dictateOn) {
+                        $script:dictateBuf += [string]$parts[2].Trim()
+                        Write-Err ('DICTATE+' + $parts[2].Trim())
+                        continue
+                    }
                     $text = $parts[2].Trim()
+                    if ($text -match '提醒我|记一下|别忘了|帮我记') { try { Create-ReminderFromText $text } catch { }; continue }
+                    if ($text -match '^(知道了|收到|好的|好，知道了|不用提醒了|行了)。?$') {
+                        try {
+                            $arr = @(Load-Notes)
+                            $target = @($arr | Where-Object { $_.due -and -not $_.done } | Sort-Object { [string]$_.due } | Select-Object -First 1)
+                            if ($target.Count -gt 0) {
+                                $target[0] | Add-Member -NotePropertyName done -NotePropertyValue $true -Force
+                                [IO.File]::WriteAllText($script:notesPath, (ConvertTo-Json -InputObject @($arr) -Depth 4), (New-Object Text.UTF8Encoding($false)))
+                                Show-Bubble '好，不吵你了'
+                                Speak-Text '好，不吵你了'
+                                continue
+                            }
+                        } catch { }
+                    }
                     # 弹琴意图：命中曲库就本地合成播放，不走对话模型
                     if ($text -match '别弹|不要弹|停止|安静|安静点|闭嘴|stop') {
                         if (Stop-Music) { break }
@@ -2458,32 +3053,59 @@ $timer.Add_Tick({
             }
         }
 
-        # 到点的提醒：主动冒泡 + 开口
+        # 每日简报：到点自动播报一次（每天只触发一次）
+        if ($script:cfg.briefing -and $script:cfg.briefing.enabled) {
+            try {
+                $nowT = Get-Date
+                $tparts = ([string]$script:cfg.briefing.time) -split ':'
+                if ($tparts.Count -ge 2 -and $nowT.Hour -eq [int]$tparts[0] -and $nowT.Minute -eq [int]$tparts[1]) {
+                    $todayKey = $nowT.ToString('yyyy-MM-dd')
+                    if ($script:lastBriefingDate -ne $todayKey) {
+                        $script:lastBriefingDate = $todayKey
+                        Show-Briefing
+                    }
+                }
+            } catch { }
+        }
+
+        # 到点的提醒：到点响一次，没确认就每 10 分钟再提醒，最多 3 次
         if ($script:frames % 600 -eq 0) {
             try {
                 $remArr = @(Load-Notes)
                 $remChanged = $false
+                $nowRem = Get-Date
                 foreach ($n in $remArr) {
+                    $done = $false
+                    try { if ($n.done) { $done = [bool]$n.done } } catch { }
+                    if ($done) { continue }
                     $dueStr = [string]$n.due
                     if (-not $dueStr) { continue }
-                    $isFired = $false
-                    try { if ($n.fired) { $isFired = [bool]$n.fired } } catch { }
-                    if ($isFired) { continue }
-                    try {
-                        if ((Get-Date) -ge [datetime]::Parse($dueStr)) {
-                            $n | Add-Member -NotePropertyName fired -NotePropertyValue $true -Force
-                            $remChanged = $true
-                            Show-Bubble ([char]0x23F0 + ' 主人，你让我提醒你：' + [string]$n.text)
-                            Speak-Text ('主人，你让我提醒你：' + [string]$n.text)
-                        }
-                    } catch { }
+                    try { $dueDt = [datetime]::Parse($dueStr) } catch { continue }
+                    $count = 0
+                    try { if ($n.remindCount) { $count = [int]$n.remindCount } } catch { }
+                    $wasFired = $false
+                    try { if ($n.fired) { $wasFired = [bool]$n.fired } } catch { }
+                    if ($wasFired -and -not $count) { continue }
+                    $nextAt = $null
+                    try { if ($n.nextAt) { $nextAt = [datetime]::Parse([string]$n.nextAt) } } catch { }
+                    $shouldRemind = $false
+                    if ($count -eq 0 -and $nowRem -ge $dueDt) { $shouldRemind = $true }
+                    elseif ($count -lt 3 -and $nextAt -and $nowRem -ge $nextAt) { $shouldRemind = $true }
+                    if ($shouldRemind) {
+                        $n | Add-Member -NotePropertyName remindCount -NotePropertyValue ($count + 1) -Force
+                        $n | Add-Member -NotePropertyName fired -NotePropertyValue $true -Force
+                        $n | Add-Member -NotePropertyName nextAt -NotePropertyValue ((Get-Date).AddMinutes(10).ToString('o')) -Force
+                        $remChanged = $true
+                        Show-Bubble ([char]0x23F0 + ' 主人，你让我提醒你：' + [string]$n.text)
+                        Speak-Text ('主人，你让我提醒你：' + [string]$n.text)
+                        Write-Err ('REMIND-RING count=' + ($count + 1) + ' text=' + [string]$n.text)
+                    }
                 }
                 if ($remChanged) {
                     [IO.File]::WriteAllText($script:notesPath, (ConvertTo-Json -InputObject @($remArr) -Depth 4), (New-Object Text.UTF8Encoding($false)))
                 }
             } catch { }
         }
-
         # 空闲时常驻“在听…”，但只在耳朵真正空闲时显示：没在接话、没在识别、说完的暂停期已过
         if ($script:chatOn -and -not $script:chatBusy -and -not (Test-Path (Join-Path $DataDir 'asr.talking'))) {
             $busyFile = Join-Path $DataDir 'asr.busy'
