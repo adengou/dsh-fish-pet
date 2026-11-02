@@ -1,4 +1,4 @@
-# dsh.ps1 · 鱼 → DSH 任务转交（通过插件本机路由 /fishpet/task）
+﻿# dsh.ps1 · 鱼 → DSH 任务转交（通过插件本机路由 /fishpet/task）
 # 依赖主脚本：Show-Bubble / Speak-Text / Write-Err / Get-ApiKey
 
 # 把一段任务文字交给 DSH（新开一个会话），成功返回 $true
@@ -6,7 +6,11 @@ function Send-DshTask([string]$text) {
     try {
         if (-not $text -or -not $text.Trim()) { return $false }
         $text = $text.Trim()
-        $body = @{ text = $text } | ConvertTo-Json -Compress
+        # 工作目录：优先 config.json 的 dsh.cwd，其次主人常用的 F 盘工作目录
+        $cwd = ''
+        try { if ($script:cfg.dsh -and $script:cfg.dsh.cwd) { $cwd = [string]$script:cfg.dsh.cwd } } catch { }
+        if (-not $cwd) { $cwd = 'F:\李智梅党建工作材料' }
+        $body = @{ text = $text; cwd = $cwd } | ConvertTo-Json -Compress
         $http = New-Object System.Net.Http.HttpClient
         $http.Timeout = [TimeSpan]::FromSeconds(30)
         $req = New-Object System.Net.Http.HttpRequestMessage([System.Net.Http.HttpMethod]::Post, 'http://127.0.0.1:3080/fishpet/task')
