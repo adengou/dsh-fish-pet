@@ -1011,13 +1011,14 @@ $timer.Add_Tick({
         if ($script:musicOut -and $script:musicProc) {
             try { if ($script:musicProc.HasExited) { Finish-Music } } catch { $script:musicOut = $null; $script:musicProc = $null }
 
+        }
+
         # 弹完了，处理排队中的对话（不打断正在进行的聊天）
         if ($script:musicQueue.Count -gt 0 -and -not (Test-MusicBusy) -and -not $script:chatBusy) {
             $nextText = [string]$script:musicQueue[0]
             $script:musicQueue = @($script:musicQueue | Select-Object -Skip 1)
             Write-Err ('MUSIC-RESUME ' + $nextText)
             try { Start-Chat $nextText } catch { }
-        }
         }
 
         # 脉动回归
