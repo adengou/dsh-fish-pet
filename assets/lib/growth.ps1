@@ -133,7 +133,7 @@ function Add-Growth([int]$amount, [string]$reason) {
 
         $after = Get-GrowthStage
         if ($after.index -gt $before.index) {
-            $msg = '主人，本鲸又长大一点啦——现在是「' + $after.name + '」阶段。'
+            $msg = '主人，本鱼又长大一点啦——现在是「' + $after.name + '」阶段。'
             Show-Bubble $msg
             try { Speak-Text $msg } catch { }
             Write-Err ('GROWTH-UP ' + $before.name + ' -> ' + $after.name + ' exp=' + $script:growth.exp)

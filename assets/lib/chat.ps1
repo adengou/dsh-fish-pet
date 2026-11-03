@@ -42,9 +42,7 @@ $script:poemData = $null
 function Start-Chat([string]$text) {
     Write-Err ('CHAT-START busy=' + $script:chatBusy + ' text=' + $text)
     # 正在讲故事/整回连播：不接新对话，免得把故事切断
-    $storyQueueBusy = $false
-    try { $storyQueueBusy = ($script:storyQueue -and $script:storyQueue.Count -gt 0) } catch { }
-    if ($storyQueueBusy -or ($script:storyPlaying -and $script:storyUntil -and ((Get-Date) -lt $script:storyUntil))) {
+    if (Test-StoryBusy) {
         Show-Bubble '先听完这段故事嘛，讲完再理你～'
         Write-Err ('STORY-BUSY-SKIP ' + $text)
         return

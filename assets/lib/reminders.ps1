@@ -48,7 +48,7 @@ function Save-Note([string]$text, $due = $null) {
         if ($due) { $entry.due = $due.ToString('o'); $entry.fired = $false }
         $arr += $entry
         if ($arr.Count -gt 20) { $arr = @($arr[($arr.Count - 20)..($arr.Count - 1)]) }
-        [IO.File]::WriteAllText($script:notesPath, ($arr | ConvertTo-Json -Depth 4), (New-Object Text.UTF8Encoding($false)))
+        Save-JsonAtomic -path $script:notesPath -obj @($arr)
     } catch { }
 }
 
@@ -117,14 +117,14 @@ function Show-ReminderList {
             if ($sel -ge 0 -and $arr.Count -gt $sel) {
                 $kept = @()
                 for ($i = 0; $i -lt $arr.Count; $i++) { if ($i -ne $sel) { $kept += $arr[$i] } }
-                [IO.File]::WriteAllText($script:notesPath, (ConvertTo-Json -InputObject @($kept) -Depth 4), (New-Object Text.UTF8Encoding($false)))
+                Save-JsonAtomic -path $script:notesPath -obj @($kept)
                 & $script:remRefresh
             }
         })
         $btnClear.Add_Click({
             $r = [System.Windows.Forms.MessageBox]::Show('清空全部提醒事项？', '提醒清单', [System.Windows.Forms.MessageBoxButtons]::YesNo, [System.Windows.Forms.MessageBoxIcon]::Question)
             if ($r -eq [System.Windows.Forms.DialogResult]::Yes) {
-                [IO.File]::WriteAllText($script:notesPath, '[]', (New-Object Text.UTF8Encoding($false)))
+                Save-JsonAtomic -path $script:notesPath -obj @()
                 & $script:remRefresh
             }
         })

@@ -1,4 +1,4 @@
-# encrypt-keys.ps1 · 把明文 key 换成 Windows DPAPI 加密文件
+﻿# encrypt-keys.ps1 · 把明文 key 换成 Windows DPAPI 加密文件
 # 用法： powershell -ExecutionPolicy Bypass -File tools\encrypt-keys.ps1
 # 加密后生成 <name>.key.enc 并删除明文 <name>.key；鱼和耳朵会优先读 .enc
 

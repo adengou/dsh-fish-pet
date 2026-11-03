@@ -249,4 +249,7 @@ if ($Say) {
 }
 # 耳朵在后台独立跑（asr-listener.ps1），鱼只读结果，不再自己占麦克风
 $script:asrFile = Join-Path $DataDir 'asr.log'
-$script:asrPos = 0
+# 从当前文件末尾开始读：原来写死 0 会在每次启动时把整份历史 asr.log 重放一遍（老消息被当成刚说的话）
+try {
+    if (Test-Path -LiteralPath $script:asrFile) { $script:asrPos = [int64](Get-Item -LiteralPath $script:asrFile).Length } else { $script:asrPos = [int64]0 }
+} catch { $script:asrPos = [int64]0 }

@@ -1,7 +1,7 @@
 ﻿# asr-listener.ps1 · 云端耳朵（VAD 连续采集版）
 # 一次连续采集，检测到"说完"立刻上传，不再固定切片
 param(
-    [int]$MaxMs = 4000,
+    [int]$MaxMs = 6000,
     [int]$SilenceMs = 700,
     [int]$Boost = 1,
     [int]$SilenceGate = 600
@@ -21,6 +21,21 @@ $LevelFile = Join-Path $DataDir 'asr.level'
 $BusyFile  = Join-Path $DataDir 'asr.busy'
 $ErrFile   = Join-Path $DataDir 'asr.err'
 $KeyFile   = Join-Path $DataDir 'siliconflow.key'
+
+# 写日志：主程序同时在读 asr.log，Add-Content 偶尔撞上共享冲突 —— 重试 3 次，别丢识别结果
+function Add-Log([string]$path, [string]$line) {
+    for ($i = 0; $i -lt 3; $i++) {
+        try { Add-Content -LiteralPath $path -Value $line -Encoding UTF8; return } catch { Start-Sleep -Milliseconds 40 }
+    }
+}
+# 启动清理：上次被强杀留下的临时录音（含人声，属隐私，别一直躺盘上）
+try {
+    Get-ChildItem -LiteralPath $DataDir -Filter 'chunk-*.wav' -ErrorAction SilentlyContinue |
+        Where-Object { $_.LastWriteTime -lt (Get-Date).AddMinutes(-5) } |
+        ForEach-Object { try { Remove-Item -LiteralPath $_.FullName -Force -ErrorAction SilentlyContinue } catch { } }
+} catch { }
+# 启动清理：残留的 asr.busy 会让主程序一直以为耳朵在忙
+try { Remove-Item -LiteralPath $BusyFile -Force -ErrorAction SilentlyContinue } catch { }
 
 # 读外部配置（config.json 里的 voice 段）
 $CfgPath = Join-Path $DataDir 'config.json'
@@ -71,20 +86,31 @@ public class EarVad
     public static bool Capture(int maxMs, int gate, int silenceMs, int boost, int role, string busyPath)
     {
         Pcm = new byte[0]; RawPeak = 0; DurationMs = 0;
-        var en = (IVadEnum)(new VadEnum());
-        IVadDev dev;
+        IVadEnum en = null; IVadDev dev = null; object o = null; object co = null;
+        IVadClient ac = null; IVadCapture cc = null;
+        IntPtr fmt = IntPtr.Zero;
+        bool running = false;
+        try
+        {
+        en = (IVadEnum)(new VadEnum());
         if (en.GetDefaultAudioEndpoint(1, role, out dev) != 0) { if (en.GetDefaultAudioEndpoint(1, 0, out dev) != 0) return false; }
-        Guid iid = typeof(IVadClient).GUID; object o; dev.Activate(ref iid, 1, IntPtr.Zero, out o);
-        var ac = (IVadClient)o;
-        IntPtr fmt;
+        Guid iid = typeof(IVadClient).GUID; object oTmp; dev.Activate(ref iid, 1, IntPtr.Zero, out oTmp); o = oTmp;
+        ac = (IVadClient)oTmp;
         int hrFmt = ac.GetMixFormat(out fmt);
         if (hrFmt != 0 || fmt == IntPtr.Zero) return false;
         int rate = Marshal.ReadInt32(fmt, 4);
         short ch = Marshal.ReadInt16(fmt, 2);
+        if (ch < 1) return false;
+        // 采样率低于 16k：降采样 step<1 会让时长翻倍、音调减半，云端必然听不懂 —— 这段直接不要
+        if (rate < 16000) {
+            try { System.IO.File.AppendAllText(System.IO.Path.Combine(System.IO.Path.GetDirectoryName(busyPath), "asr.err"), DateTime.Now.ToString("HH:mm:ss") + "  mic-rate-too-low " + rate + "Hz\r\n"); } catch { }
+            return false;
+        }
         if (ac.Initialize(0, 0, 5000000, 0, fmt, IntPtr.Zero) != 0) return false;
-        Guid ci = typeof(IVadCapture).GUID; object co; ac.GetService(ref ci, out co);
-        var cc = (IVadCapture)co;
+        Guid ci = typeof(IVadCapture).GUID; object coTmp; ac.GetService(ref ci, out coTmp); co = coTmp;
+        cc = (IVadCapture)coTmp;
         if (ac.Start() != 0) return false;
+        running = true;
 
         var all = new List<float>();
         var pre = new List<float>();
@@ -93,7 +119,8 @@ public class EarVad
         var b4 = new byte[4];
         var end = DateTime.UtcNow.AddMilliseconds(maxMs + 1500);
 
-        while (DateTime.UtcNow < end && total < maxMs)
+        // 计时用“有效语音”voiced，不是 total：total 含开口前的预录静音，会把 4 秒的真话截成半句
+        while (DateTime.UtcNow < end && voiced < maxMs)
         {
             uint pkt;
             if (cc.GetNextPacketSize(out pkt) != 0 || pkt == 0) { Thread.Sleep(3); continue; }
@@ -130,6 +157,9 @@ public class EarVad
                     all.AddRange(pre);
                     pre.Clear();
                     silent = 0;
+                    voiced = 0;
+                    // 开口后重新计时：保证有完整的 maxMs 有效语音额度，不会被“没开口那段”吃掉
+                    end = DateTime.UtcNow.AddMilliseconds(maxMs + 2500);
                     if (peakInt > RawPeak) RawPeak = peakInt;
                 }
             }
@@ -143,8 +173,9 @@ public class EarVad
                 if (silent >= effectiveSilence && voiced >= 1200) break;
             }
         }
-        ac.Stop();
-        if (!started || all.Count < rate / 2) return false;
+        ac.Stop(); running = false;
+        // all 是 frames*ch 的交错样本：立体声要除以 ch 才是真实时长（G3）
+        if (!started || all.Count < rate * ch / 2) return false;
 
         // 轻声增益：整段峰值偏低时放大，响的句子不动
         float maxA = 0; double sumSq = 0; int cntAll = 0;
@@ -177,6 +208,17 @@ public class EarVad
         Pcm = pcmBytes;
         DurationMs = (int)(outCount * 1000 / 16000);
         return true;
+        }
+        finally
+        {
+            // COM 引用必须还回去：否则每次采集都漏一个设备对象，跑久了 COM 句柄耗光
+            if (running && ac != null) { try { ac.Stop(); } catch { } }
+            if (fmt != IntPtr.Zero) { try { Marshal.FreeCoTaskMem(fmt); } catch { } }
+            if (cc != null) { try { Marshal.ReleaseComObject(cc); } catch { } }
+            if (ac != null) { try { Marshal.ReleaseComObject(ac); } catch { } }
+            if (dev != null) { try { Marshal.ReleaseComObject(dev); } catch { } }
+            if (en != null) { try { Marshal.ReleaseComObject(en); } catch { } }
+        }
     }
 }
 "@
@@ -237,26 +279,25 @@ function Rotate-Log([string]$path) {
 
 $script:http = $null
 $script:lastFishCheck = Get-Date
-Add-Content -LiteralPath $OutFile -Value ("# ear(start) pid=" + $PID) -Encoding UTF8
+Add-Log $OutFile ("# ear(start) pid=" + $PID)
 
 while ($true) {
     try {
         Rotate-Log $OutFile
         Rotate-Log $LevelFile
 
+        # 用 GetLastWriteTimeUtc 判年龄：文件不存在返回默认值、不抛（原来 Test-Path 后再 Get-Item 有 TOCTOU）
         $talkf = Join-Path $DataDir 'asr.talking'
-        if (Test-Path $talkf) {
-            $tAge = ((Get-Date) - (Get-Item $talkf).LastWriteTime).TotalSeconds
-            if ($tAge -lt 30) { Start-Sleep -Milliseconds 200; continue }
-            # 锁残留（鱼被杀时留下的）：超过 30 秒自动清理，否则耳朵会永久装死
+        $tAge = ((Get-Date).ToUniversalTime() - [IO.File]::GetLastWriteTimeUtc($talkf)).TotalSeconds
+        if ($tAge -lt 120) { Start-Sleep -Milliseconds 200; continue }
+        if (Test-Path -LiteralPath $talkf) {
+            # 锁残留（鱼被杀时留下的）：超过 120 秒才清理（原来 30 秒会误清朗读中的长回复，录到自己的声音）
             try { Remove-Item -LiteralPath $talkf -Force -ErrorAction SilentlyContinue } catch { }
-            try { Add-Content -LiteralPath $ErrFile -Value ((Get-Date -Format 'HH:mm:ss') + '  talking-lock stale, cleared') -Encoding UTF8 } catch { }
+            Add-Log $ErrFile ((Get-Date -Format 'HH:mm:ss') + '  talking-lock stale, cleared')
         }
         $pf = Join-Path $DataDir 'asr.pause'
-        if (Test-Path $pf) {
-            $age = ((Get-Date) - (Get-Item $pf).LastWriteTime).TotalSeconds
-            if ($age -lt 0.6) { Start-Sleep -Milliseconds 200; continue }
-        }
+        $pauseAge = ((Get-Date).ToUniversalTime() - [IO.File]::GetLastWriteTimeUtc($pf)).TotalSeconds
+        if ($pauseAge -lt 0.6) { Start-Sleep -Milliseconds 200; continue }
 
         if (((Get-Date) - $script:lastFishCheck).TotalSeconds -gt 30) {
             $script:http = $null
@@ -289,7 +330,7 @@ $script:lastFishCheck = Get-Date
             # 没有可用麦克风时不再每 0.8 秒刷一次 asr.err：只提示一次，然后慢速重试
             if (-not $script:micWarned) {
                 $script:micWarned = $true
-                Add-Content -LiteralPath $OutFile -Value ((Get-Date -Format 'HH:mm:ss') + "`tM`t(没有找到麦克风设备，语音输入先歇着)") -Encoding UTF8
+                Add-Log $OutFile ((Get-Date -Format 'HH:mm:ss') + "`tM`t(没有找到麦克风设备，语音输入先歇着)")
             }
             Start-Sleep -Seconds 3
             continue
@@ -299,23 +340,38 @@ $script:lastFishCheck = Get-Date
         $talkF = Join-Path $DataDir 'asr.talking'
         if (Test-Path $talkF) { continue }
         $pauseF = Join-Path $DataDir 'asr.pause'
-        if ((Test-Path $pauseF) -and (((Get-Date) - (Get-Item $pauseF).LastWriteTime).TotalSeconds -lt 0.6)) { continue }
+        $pauseAge2 = ((Get-Date).ToUniversalTime() - [IO.File]::GetLastWriteTimeUtc($pauseF)).TotalSeconds
+        if ($pauseAge2 -lt 0.6) { continue }
         if (-not $ok) {
-            Start-Sleep -Milliseconds 80
+            # 连续 20 次都没开口：可能是根本没麦克风（Capture 返回 false 不抛异常，走不到上面的 catch），提示一次并放慢节奏
+            $script:noVoice = [int]$script:noVoice + 1
+            if ($script:noVoice -ge 20) {
+                $script:noVoice = 0
+                if (-not $script:micWarned2) {
+                    $script:micWarned2 = $true
+                    Add-Log $OutFile ((Get-Date -Format 'HH:mm:ss') + "`tM`t(一直没听到声音，看看麦克风插好没)")
+                }
+                Start-Sleep -Milliseconds 3000
+            } else {
+                Start-Sleep -Milliseconds 80
+            }
             continue
         }
+        $script:noVoice = 0
 
         $pcm = [EarVad]::Pcm
         $ms = [EarVad]::DurationMs
-        Add-Content -LiteralPath $LevelFile -Value ((Get-Date -Format 'HH:mm:ss') + "`traw=" + [EarVad]::RawPeak + "`tms=" + $ms) -Encoding UTF8
+        Add-Log $LevelFile ((Get-Date -Format 'HH:mm:ss') + "`traw=" + [EarVad]::RawPeak + "`tms=" + $ms)
         if ($pcm.Length -lt 3200) { continue }
         if ($ms -lt 400 -or [EarVad]::RawPeak -lt $SilenceGate) { continue }
 
-        Add-Content -LiteralPath $OutFile -Value ((Get-Date -Format 'HH:mm:ss') + "`tH`t(听到声音 " + $ms + "ms)") -Encoding UTF8
+        Add-Log $OutFile ((Get-Date -Format 'HH:mm:ss') + "`tH`t(听到声音 " + $ms + "ms)")
         # 进入识别流程：标记耳朵“忙”，主程序据此不再显示“在听…”
         try { [IO.File]::WriteAllText($BusyFile, (Get-Date).ToString('o')) } catch { }
         $wav = Join-Path $DataDir ('chunk-' + [guid]::NewGuid().ToString('N') + '.wav')
         Write-Wav $wav $pcm
+        # 从落盘到删除之间用 try/finally 包住：中途被强杀也不会把人声 WAV 留在盘上
+        try {
         try { Copy-Item $wav (Join-Path $DataDir 'last-chunk.wav') -Force } catch { }
 
         $engine = if ($script:engine) { $script:engine } else { 'auto' }
@@ -325,7 +381,7 @@ $script:lastFishCheck = Get-Date
             $engine = 'local'
             if (-not $script:keyWarned) {
                 $script:keyWarned = $true
-                Add-Content -LiteralPath $OutFile -Value ((Get-Date -Format 'HH:mm:ss') + "`tK`t(未配置 SiliconFlow key，暂用本机识别；放入 siliconflow.key 后自动切回云端)") -Encoding UTF8
+                Add-Log $OutFile ((Get-Date -Format 'HH:mm:ss') + "`tK`t(未配置 SiliconFlow key，暂用本机识别；放入 siliconflow.key 后自动切回云端)")
             }
         }
         $text = $null
@@ -336,7 +392,7 @@ $script:lastFishCheck = Get-Date
                 if ($engine -eq 'local' -or $lr.conf -ge $confMin) { $text = $lr.text; $via = 'local' }
             }
         }
-        if (-not $text -and $engine -ne 'local' -and $key) {
+        if (-not $text -and $engine -ne 'local' -and $key -and (-not $script:keyBackoff -or (Get-Date) -ge $script:keyBackoff)) {
             if ($null -eq $script:http) {
                 $script:http = New-Object System.Net.Http.HttpClient
                 $script:http.Timeout = [TimeSpan]::FromSeconds(30)
@@ -361,33 +417,46 @@ $script:lastFishCheck = Get-Date
                 } catch { }
                 if ($langHint) { $mp.Add((New-Object System.Net.Http.StringContent($langHint)), 'language') }
                 $resp = $script:http.PostAsync('https://api.siliconflow.cn/v1/audio/transcriptions', $mp).GetAwaiter().GetResult()
-                $json = $resp.Content.ReadAsStringAsync().GetAwaiter().GetResult()
+                $status = [int]$resp.StatusCode
+                $isOkResp = $resp.IsSuccessStatusCode
+                $body = $resp.Content.ReadAsStringAsync().GetAwaiter().GetResult()
                 try { $resp.Dispose(); $mp.Dispose() } catch { }
-            } catch { try { Add-Content -LiteralPath $ErrFile -Value ((Get-Date -Format 'HH:mm:ss') + '  HTTP ' + $_.Exception.Message) -Encoding UTF8 } catch { } }
+                if ($isOkResp) { $json = $body }
+                else {
+                    # 401/429/5xx 的错误体也是 JSON：不判状态码就会被当成“没听清”，一行日志都不留
+                    $snip = [string]$body
+                    if ($snip.Length -gt 200) { $snip = $snip.Substring(0, 200) }
+                    Add-Log $ErrFile ((Get-Date -Format 'HH:mm:ss') + '  HTTP ' + $status + ' ' + ($snip -replace "[\r\n\t]", ' '))
+                    # key 无效/欠费：30 秒内别再打，省得每句话都失败一次
+                    if ($status -eq 401 -or $status -eq 402) { $script:keyBackoff = (Get-Date).AddSeconds(30) }
+                }
+            } catch { Add-Log $ErrFile ((Get-Date -Format 'HH:mm:ss') + '  HTTP ' + $_.Exception.Message) }
             if ($json) {
                 try { $obj = $json | ConvertFrom-Json; $text = [string]$obj.text; $via = 'cloud' } catch { }
             }
         }
-        Remove-Item -LiteralPath $wav -Force -ErrorAction SilentlyContinue
-        Add-Content -LiteralPath $LevelFile -Value ((Get-Date -Format 'HH:mm:ss') + "`tengine=" + $via + "`ttext=" + $text) -Encoding UTF8
+        } finally { Remove-Item -LiteralPath $wav -Force -ErrorAction SilentlyContinue }
+        # 日志里的识别文本先掐掉换行/制表符，否则读日志的一方会被截成半句（G4）
+        $textLog = ([string]$text -replace "[\r\n\t]", ' ')
+        Add-Log $LevelFile ((Get-Date -Format 'HH:mm:ss') + "`tengine=" + $via + "`ttext=" + $textLog)
         if ($text) { $text = $text.Trim() }
         # 过滤乱语种：泰文/日文假名/西里尔/阿拉伯等说明识别跑偏了，当没听清
         if ($text -and ($text -match '[\u0e00-\u0eff\u3040-\u30ff\u0400-\u04ff\u0600-\u06ff]')) {
-            Add-Content -LiteralPath $OutFile -Value ((Get-Date -Format 'HH:mm:ss') + "`t?`t(识别跑偏：" + $text + ")") -Encoding UTF8
+            Add-Log $OutFile ((Get-Date -Format 'HH:mm:ss') + "`t?`t(识别跑偏：" + $textLog + ")")
             $text = ''
         }
         if (-not $text -and [EarVad]::RawPeak -ge 800) {
-            Add-Content -LiteralPath $OutFile -Value ((Get-Date -Format 'HH:mm:ss') + "`t?`t(没听清)") -Encoding UTF8
+            Add-Log $OutFile ((Get-Date -Format 'HH:mm:ss') + "`t?`t(没听清)")
         }
         if ($text -and ($text -match '[\u4e00-\u9fa5]' -or $text.Length -ge 4)) {
-            Add-Content -LiteralPath $OutFile -Value ((Get-Date -Format 'HH:mm:ss') + "`t1`t" + $text) -Encoding UTF8
+            Add-Log $OutFile ((Get-Date -Format 'HH:mm:ss') + "`t1`t" + $textLog)
         }
         # 识别结束，耳朵恢复空闲
         try { Remove-Item -LiteralPath $BusyFile -Force -ErrorAction SilentlyContinue } catch { }
         Start-Sleep -Milliseconds 60
     } catch {
         try { Remove-Item -LiteralPath $BusyFile -Force -ErrorAction SilentlyContinue } catch { }
-        Add-Content -LiteralPath $ErrFile -Value ((Get-Date -Format 'HH:mm:ss') + '  ' + $_.Exception.Message) -Encoding UTF8
+        Add-Log $ErrFile ((Get-Date -Format 'HH:mm:ss') + '  ' + $_.Exception.Message)
         Start-Sleep -Milliseconds 800
     }
 }

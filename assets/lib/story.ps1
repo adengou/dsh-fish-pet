@@ -18,6 +18,16 @@ $script:storyQueue = @()     # 当前回目待播的段
 $script:storyQueueBook = ''
 $script:storyQueueTitle = ''
 $script:storyUntil = $null
+$script:storyPlaying = $false
+
+# 说书是否还在进行：统一判定（队列非空 或 本段还没讲完）。原来 $script:storyPlaying 只读不写，永远为 $null
+function Test-StoryBusy {
+    try {
+        if ($script:storyQueue -and @($script:storyQueue).Count -gt 0) { return $true }
+        if ($script:storyUntil -and ((Get-Date) -lt $script:storyUntil)) { return $true }
+    } catch { }
+    return $false
+}
 
 # ---------- 进度记忆 ----------
 function Load-StoryProgress {
@@ -196,6 +206,7 @@ function Speak-StoryChunk($pick, [bool]$isFirst) {
         try { if ($script:cfg.story -and $script:cfg.story.rate) { $storyRate = [string]$script:cfg.story.rate } } catch { }
         $estSec = [Math]::Max(30, [int]($full.Length * 0.45))
         $script:storyUntil = (Get-Date).AddSeconds($estSec)
+        $script:storyPlaying = $true
         Speak-Text $full $storyRate
         $script:storyProgress[(Get-StoryKey $pick)] = $true
         Save-StoryProgress
@@ -207,6 +218,8 @@ function Speak-StoryChunk($pick, [bool]$isFirst) {
 # ---------- 主 tick 调用：整回连播 ----------
 function Invoke-StoryQueueTick {
     try {
+        # 每拍把 storyPlaying 与真实状态对齐：讲完 / 队列空 / 讲超时都会自动回落成 $false
+        $script:storyPlaying = Test-StoryBusy
         if ($script:storyQueue.Count -eq 0) { return }
         if (Test-Path (Join-Path $DataDir 'asr.talking')) { return }   # 还在说
         # 播放中（speakEndAt 未到）不续播，避免两段叠在一起
@@ -299,6 +312,7 @@ function Start-Story([string]$hint) {
         $script:storyQueue = $q
         $script:storyQueueBook = $pickBook
         $script:storyQueueTitle = [string]$pick.title
+        $script:storyPlaying = $true
         # 播第一段（从队列里取）
         $first = $script:storyQueue[0]
         $script:storyQueue = @($script:storyQueue | Select-Object -Skip 1)

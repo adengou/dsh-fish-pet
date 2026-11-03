@@ -11,6 +11,33 @@ param(
     [switch]$Listen
 )
 
+# 日志函数必须定义在第一次调用之前（下面开了 $ErrorActionPreference='Stop'，晚定义会直接抛错）
+function Write-Err([string]$tag) {
+    $ep = Join-Path (Join-Path $env:USERPROFILE '.dsh\fish-pet') 'error.log'
+    try {
+        if ((Test-Path $ep) -and (Get-Item $ep).Length -gt 1MB) {
+            Remove-Item ($ep + '.1') -Force -ErrorAction SilentlyContinue
+            Move-Item $ep ($ep + '.1') -Force
+        }
+    } catch { }
+    try {
+        $line = (Get-Date -Format 'HH:mm:ss') + '  ' + $tag
+        Add-Content -LiteralPath $ep -Value $line -Encoding UTF8
+    } catch { }
+}
+
+# 原子写 JSON：先写 .tmp 再替换，避免写一半被强杀留下半截文件（读回失败会把整份数据当空）
+function Save-JsonAtomic([string]$path, $obj, [int]$depth = 4) {
+    $tmp = $path + '.tmp'
+    try {
+        $text = ConvertTo-Json -InputObject $obj -Depth $depth
+        [IO.File]::WriteAllText($tmp, $text, (New-Object Text.UTF8Encoding($false)))
+        Move-Item -LiteralPath $tmp -Destination $path -Force
+    } catch {
+        try { Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue } catch { }
+    }
+}
+
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Windows.Forms
 try { Add-Type -AssemblyName System.Net.Http -ErrorAction Stop } catch { }
@@ -45,6 +72,8 @@ $Root      = Split-Path -Parent $MyInvocation.MyCommand.Path
 $DataDir = Join-Path $env:USERPROFILE '.dsh\fish-pet'
 if (-not (Test-Path $DataDir)) { New-Item -ItemType Directory -Force -Path $DataDir | Out-Null }
 try { Remove-Item (Join-Path $DataDir 'asr.stop') -Force -ErrorAction SilentlyContinue } catch { }
+# 正常启动：清掉上次「让它游走（退出）」留下的 pet.quit 标志，宿主看到它才不会重启
+try { Remove-Item (Join-Path $DataDir 'pet.quit') -Force -ErrorAction SilentlyContinue } catch { }
 $StatePath = Join-Path $DataDir 'state.json'
 $ConfigPath = Join-Path $DataDir 'config.json'
 # 动态解析存档根目录：优先 config 指定 → 有 D~F 盘就用盘上的「桌宠」→ 否则落到用户目录
@@ -491,8 +520,8 @@ function Load-Memory {
 
 function Save-Memory {
     try {
-        $j = @{ history = $script:chatHistory; summary = $script:memorySummary; savedAt = (Get-Date).ToString('o') } | ConvertTo-Json -Depth 5 -Compress
-        [IO.File]::WriteAllText($script:memPath, $j, (New-Object Text.UTF8Encoding($false)))
+        $o = @{ history = $script:chatHistory; summary = $script:memorySummary; savedAt = (Get-Date).ToString('o') }
+        Save-JsonAtomic -path $script:memPath -obj $o -depth 5
     } catch { }
 }
 # 把最近对话压缩成长期记忆摘要
@@ -506,7 +535,8 @@ function Update-Summary {
         $old = $(if ($script:memorySummary) { $script:memorySummary } else { '（无）' })
         $u = '旧记忆：' + $old + "`n最近对话：`n" + $convo
         $body = @{ model = 'deepseek-flash'; messages = @(@{ role = 'system'; content = $sys2 }, @{ role = 'user'; content = $u }); max_tokens = 220; temperature = 0.3; thinking = @{ type = 'disabled' } } | ConvertTo-Json -Depth 6
-        $resp = Invoke-WebRequest -Uri 'https://api.deepseek.com/chat/completions' -Method Post -Headers @{ Authorization = "Bearer $k" } -ContentType 'application/json' -Body ([Text.Encoding]::UTF8.GetBytes($body)) -TimeoutSec 60 -UseBasicParsing
+        # UI 线程同步调用：超时从 60 秒压到 8 秒，避免动画/TTS 卡死一分钟
+        $resp = Invoke-WebRequest -Uri 'https://api.deepseek.com/chat/completions' -Method Post -Headers @{ Authorization = "Bearer $k" } -ContentType 'application/json' -Body ([Text.Encoding]::UTF8.GetBytes($body)) -TimeoutSec 8 -UseBasicParsing
         $obj = [Text.Encoding]::UTF8.GetString($resp.RawContentStream.ToArray()) | ConvertFrom-Json
         $s = [string]$obj.choices[0].message.content
         if ($s) { $script:memorySummary = $s.Trim(); Save-Memory }
@@ -527,19 +557,7 @@ $script:chatTask  = $null
 $script:http      = $null
 $script:lastUser  = ''
 
-function Write-Err([string]$tag) {
-    try {
-        $ep = Join-Path (Join-Path $env:USERPROFILE '.dsh\fish-pet') 'error.log'
-        if ((Test-Path $ep) -and (Get-Item $ep).Length -gt 1MB) {
-            Remove-Item ($ep + '.1') -Force -ErrorAction SilentlyContinue
-            Move-Item $ep ($ep + '.1') -Force
-        }
-    } catch { }
-    try {
-        $line = (Get-Date -Format 'HH:mm:ss') + '  ' + $tag
-        Add-Content -LiteralPath $ErrorPath -Value $line -Encoding UTF8
-    } catch { }
-}
+# Write-Err 已上移到脚本开头（param 之后），此处不再重复定义
 
 # 读取密钥：环境变量 → DPAPI 加密文件 → 明文文件
 function Read-Key([string]$name) {
@@ -873,7 +891,7 @@ $script:menuTimer.Add_Tick({
         try { Update-MenuLang } catch { }
         try { $miBalance.Text = Get-BalanceText } catch { }
         try { Update-RecentBriefs } catch { }
-        try { $miQuit.Enabled = -not ($script:storyPlaying -or ($script:storyQueue -and $script:storyQueue.Count -gt 0)) } catch { }
+        try { $miQuit.Enabled = -not (Test-StoryBusy) } catch { }
         try { $miGrowth.Text = Get-GrowthText } catch { }
         $menu.Show($script:menuScreenPt)
     } catch { Write-Err 'MENU-SHOW-ERR'; $script:menuHold = $false }
@@ -883,7 +901,7 @@ $form.Add_MouseUp({
     if ($e.Button -eq [System.Windows.Forms.MouseButtons]::Right) {
         # 故事播放/连播期间不弹菜单，防误触退出打断故事
         try {
-            $storyBusy = $script:storyPlaying -and (($script:storyQueue -and $script:storyQueue.Count -gt 0) -or ($script:storyUntil -and ((Get-Date) -lt $script:storyUntil)))
+            $storyBusy = Test-StoryBusy
             if ($storyBusy) { Show-Bubble '正在讲故事，讲完再聊～'; return }
         } catch { }
         $script:menuHold = $true
@@ -990,6 +1008,8 @@ $miSmall.Add_Click({
     Save-State
 })
 $miQuit.Add_Click({
+    # 退出标志：宿主守护看到 pet.quit 就不再自动把鱼拉回来（下次正常启动时主脚本会清掉它）
+    try { [IO.File]::WriteAllText((Join-Path $DataDir 'pet.quit'), (Get-Date).ToString('o')) } catch { }
     try { [IO.File]::WriteAllText((Join-Path $DataDir 'asr.stop'), (Get-Date).ToString('o')) } catch { }
     try { Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" | Where-Object { $_.CommandLine -match 'asr-listener' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue } } catch { }
     Save-State
@@ -1176,7 +1196,7 @@ $timer.Add_Tick({
                             $target = @($arr | Where-Object { $_.due -and -not $_.done } | Sort-Object { [string]$_.due } | Select-Object -First 1)
                             if ($target.Count -gt 0) {
                                 $target[0] | Add-Member -NotePropertyName done -NotePropertyValue $true -Force
-                                [IO.File]::WriteAllText($script:notesPath, (ConvertTo-Json -InputObject @($arr) -Depth 4), (New-Object Text.UTF8Encoding($false)))
+                                Save-JsonAtomic -path $script:notesPath -obj @($arr)
                                 Show-Bubble '好，不吵你了'
                                 Speak-Text '好，不吵你了'
                                 continue
@@ -1391,7 +1411,7 @@ $timer.Add_Tick({
                     }
                 }
                 if ($remChanged) {
-                    [IO.File]::WriteAllText($script:notesPath, (ConvertTo-Json -InputObject @($remArr) -Depth 4), (New-Object Text.UTF8Encoding($false)))
+                    Save-JsonAtomic -path $script:notesPath -obj @($remArr)
                 }
             } catch { }
         }
@@ -1399,8 +1419,11 @@ $timer.Add_Tick({
         if ($script:chatOn -and -not $script:chatBusy -and -not (Test-Path (Join-Path $DataDir 'asr.talking'))) {
             $busyFile = Join-Path $DataDir 'asr.busy'
             $pauseFile = Join-Path $DataDir 'asr.pause'
-            $busyOk = -not (Test-Path $busyFile)
-            $pauseOk = (-not (Test-Path $pauseFile)) -or (((Get-Date) - (Get-Item $pauseFile).LastWriteTime).TotalSeconds -gt 0.8)
+            # 用 GetLastWriteTimeUtc 判年龄：文件不存在返回默认值不抛；残留超过 60 秒的 asr.busy 视为无效（耳朵被杀留下的）
+            $busyAge = ((Get-Date).ToUniversalTime() - [IO.File]::GetLastWriteTimeUtc($busyFile)).TotalSeconds
+            $pauseAge = ((Get-Date).ToUniversalTime() - [IO.File]::GetLastWriteTimeUtc($pauseFile)).TotalSeconds
+            $busyOk = $busyAge -gt 60
+            $pauseOk = $pauseAge -gt 0.8
             $quiet = (-not $script:lastReplyAt) -or (((Get-Date) - $script:lastReplyAt).TotalSeconds -gt 3)
             $due = (-not $script:lastIdleHint) -or (((Get-Date) - $script:lastIdleHint).TotalSeconds -gt 3)
             if ($busyOk -and $pauseOk -and $quiet -and $due) {

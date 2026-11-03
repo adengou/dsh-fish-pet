@@ -178,7 +178,7 @@ function Create-ReminderFromText([string]$text) {
         }
         $arr = @(Load-Notes)
         $arr += [ordered]@{ text = $what; due = $due; fired = $false }
-        [IO.File]::WriteAllText($script:notesPath, (ConvertTo-Json -InputObject @($arr) -Depth 4), (New-Object Text.UTF8Encoding($false)))
+        Save-JsonAtomic -path $script:notesPath -obj @($arr)
         $dt = $null
         try { $dt = [datetime]::Parse($due) } catch { }
         $when = if ($dt) { $dt.ToString('MM月dd日 HH:mm') } else { $due }

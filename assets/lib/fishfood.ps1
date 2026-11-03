@@ -74,10 +74,10 @@ function Get-FishFoodText([string]$scope) {
     $todayTotal = [int]$script:fishfood.chatTokens + [int]$script:fishfood.storyTokens
     if ($scope -eq 'month') {
         $cost = Get-FishFoodCost ([int]$script:fishfood.monthTokens * 0.7) ([int]$script:fishfood.monthTokens * 0.3)
-        return '这个月本鲸吃了 ' + $script:fishfood.monthTokens + ' tokens，约 ¥' + $cost + '。'
+        return '这个月本鱼吃了 ' + $script:fishfood.monthTokens + ' tokens，约 ¥' + $cost + '。'
     }
     $cost = Get-FishFoodCost ([int]$script:fishfood.chatTokens) ([int]$script:fishfood.storyTokens)
-    return '今天本鲸吃了 ' + $todayTotal + ' tokens（聊天 ' + $script:fishfood.chatTokens + '、说书 ' + $script:fishfood.storyTokens + '），约 ¥' + $cost + '。'
+    return '今天本鱼吃了 ' + $todayTotal + ' tokens（聊天 ' + $script:fishfood.chatTokens + '、说书 ' + $script:fishfood.storyTokens + '），约 ¥' + $cost + '。'
 }
 
 # 报账（菜单/语音触发）
@@ -92,7 +92,7 @@ function Show-FishFood {
 function Get-FishFoodMood {
     Load-FishFood
     $todayTotal = [int]$script:fishfood.chatTokens + [int]$script:fishfood.storyTokens
-    if ($todayTotal -ge 50000) { return '（小声嘀咕）主人，今天鱼粮吃得多，少吃点吧，本鲸心疼……' }
-    if ($todayTotal -ge 20000) { return '（悄悄说）鱼粮来之不易，少吃点，本鲸记住啦。' }
+    if ($todayTotal -ge 50000) { return '（小声嘀咕）主人，今天鱼粮吃得多，少吃点吧，本鱼心疼……' }
+    if ($todayTotal -ge 20000) { return '（悄悄说）鱼粮来之不易，少吃点，本鱼记住啦。' }
     return ''
 }

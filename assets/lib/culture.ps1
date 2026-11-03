@@ -163,8 +163,7 @@ function Load-IdiomData {
         $base = $null
         try { $base = $script:FishAssets } catch { }
         if (-not $base) { try { $base = $PSScriptRoot } catch { } }
-        if (-not $base) { $base = Join-Path $env:USERPROFILE '.dsh\profiles\web
-ode_modules\dsh-fish-petssets' }
+        if (-not $base) { $base = Join-Path $env:USERPROFILE '.dsh\profiles\web\node_modules\dsh-fish-pet\assets' }
         $p = Join-Path $base 'data\culture\idioms.json'
         if (-not (Test-Path $p)) {
             $alt = Join-Path (Split-Path -Parent $PSScriptRoot) 'data\culture\idioms.json'

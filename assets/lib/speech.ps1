@@ -38,6 +38,16 @@ function Speak-Sapi([string]$text) {
     } catch { Write-Err ('TTS-ERR ' + $_.Exception.Message) }
 }
 
+# 清理 24 小时前的 tts-play-*.wav（原来这段写在 return 之后，永远执行不到，WAV 会一直堆着）
+function Remove-OldTtsPlay {
+    try {
+        $keep = [string]$script:lastPlayedWav
+        Get-ChildItem -LiteralPath $DataDir -Filter 'tts-play-*.wav' -ErrorAction SilentlyContinue |
+            Where-Object { $_.FullName -ne $keep -and $_.LastWriteTime -lt (Get-Date).AddHours(-24) } |
+            ForEach-Object { try { Remove-Item -LiteralPath $_.FullName -Force -ErrorAction SilentlyContinue } catch { } }
+    } catch { }
+}
+
 function Play-TtsFile([string]$mp3, [string]$voice) {
     try {
         # WPF MediaPlayer 在 WinForms 消息循环里不会加载（Position 恒 0），改用 ffmpeg 转 WAV + SoundPlayer
@@ -57,6 +67,7 @@ function Play-TtsFile([string]$mp3, [string]$voice) {
                 Write-Err ('TTS-WAV voice=' + $voice + ' file=' + (Get-Item $mp3).Length + ' dur=' + [Math]::Round($dur, 1) + ' direct=1')
                 # 播放的是 WAV，对应的 mp3 已经没用，顺手删掉
                 try { $mp3sib = [IO.Path]::ChangeExtension($mp3, '.mp3'); if ($mp3sib -ne $mp3 -and (Test-Path $mp3sib)) { Remove-Item -LiteralPath $mp3sib -Force -ErrorAction SilentlyContinue } } catch { }
+                Remove-OldTtsPlay
                 return $true
             } catch { Write-Err ('TTS-PLAY-ERR ' + $_.Exception.Message) }
         }
@@ -79,12 +90,12 @@ function Play-TtsFile([string]$mp3, [string]$voice) {
             $script:playUntil = (Get-Date).AddSeconds($dur + 1.5)
             $script:speakEndAt = $script:playUntil
             Write-Err ('TTS-WAV voice=' + $voice + ' file=' + (Get-Item $wav).Length + ' dur=' + [Math]::Round($dur, 1))
+            Remove-OldTtsPlay
             return $true
         } else {
             Write-Err ('TTS-CONV-FAIL ' + $mp3)
             return $false
         }
-        try { Get-ChildItem $DataDir -Filter 'tts-play-*.wav' -ErrorAction SilentlyContinue | Where-Object { $_.LastWriteTime -lt (Get-Date).AddMinutes(-3) } | Remove-Item -Force -ErrorAction SilentlyContinue } catch { }
     } catch { Write-Err ('TTS-PLAY-ERR ' + $_.Exception.Message) }
 }
 
@@ -285,15 +296,25 @@ $script:ttsTimer.Add_Tick({
             try {
                 $hit = Get-TtsStatusHit $rid
             } catch { $hit = $null }
-            # 请求丢失检测：6 秒还没有任何状态记录，按失败处理（会走下面的重试）
-            # 超时按文本长度动态给：短句 8 秒，长句最多 30 秒（worker 端并发排队也要算进去）
+            # 超时只记日志、不再判失败：worker 侧单段合成上限就有 25 秒，早判会让好句子被重复合成
             $pendingN = 0
             for ($q3 = 0; $q3 -lt $script:ttsSegReq.Count; $q3++) { if ($script:ttsSegReq[$q3] -and -not $script:ttsSegDone[$q3]) { $pendingN++ } }
-            # 超时 = 基础 8 秒 + 文本长度 + 队列里每个未完成请求 2 秒（并发排队也要算进去）
-            $waitSec = 12 + [Math]::Min(30, [int]($script:ttsSegs[$i].Length * 0.08)) + ($pendingN * 3)
-            if (-not $hit -and $script:ttsSegReqAt -and $script:ttsSegReqAt.Count -gt $i -and $script:ttsSegReqAt[$i] -and ((Get-Date) - $script:ttsSegReqAt[$i]).TotalSeconds -gt $waitSec) {
-                Write-Err ('TTS-SEG-TIMEOUT idx=' + $i)
-                $hit = 'TIMEOUT'
+            # 参考阈值：首段至少 45 秒（edge 冷启动 + ffmpeg 转码），后续段按文本长度 + 队列排队估算
+            $waitSec = 45 + [Math]::Min(30, [int]($script:ttsSegs[$i].Length * 0.08)) + ($pendingN * 3)
+            $waited = 0.0
+            if ($script:ttsSegReqAt -and $script:ttsSegReqAt.Count -gt $i -and $script:ttsSegReqAt[$i]) { $waited = ((Get-Date) - $script:ttsSegReqAt[$i]).TotalSeconds }
+            if (-not $hit -and $waited -gt $waitSec) {
+                # 只记日志；30 秒内最多记一次，免得 90ms 的 tick 把 error.log 刷爆
+                if (-not $script:ttsSlowAt) { $script:ttsSlowAt = @{} }
+                if (-not $script:ttsSlowAt[[string]$i] -or ((Get-Date) - $script:ttsSlowAt[[string]$i]).TotalSeconds -gt 30) {
+                    $script:ttsSlowAt[[string]$i] = Get-Date
+                    Write-Err ('TTS-SEG-SLOW idx=' + $i + ' waited=' + [int]$waited + 's')
+                }
+                # 兜底：等得实在太久（>=3 倍阈值且超过 180 秒）才认定请求丢了，按失败走一次重试
+                if ($waited -gt [Math]::Max(180, $waitSec * 3)) {
+                    Write-Err ('TTS-SEG-LOST idx=' + $i + ' waited=' + [int]$waited + 's')
+                    $hit = 'TIMEOUT'
+                }
             }
             if ($hit) {
                 if ($hit -like ('*' + $rid + ' OK*')) {
@@ -345,8 +366,18 @@ $script:ttsTimer.Add_Tick({
                 if ((Test-Path $file) -and (Get-Item $file).Length -gt 800) {
                     $script:ttsSegPlaying = $next
                     $ok = Play-TtsFile $file $script:ttsVoiceUsed
-                    # playback failure must reset the pipeline, otherwise TTS stays busy forever
-                    if (-not $ok) { Complete-TtsSegment }
+                    if (-not $ok) {
+                        # 播放失败（最常见：没装 ffmpeg、只拿到 mp3）：不能直接当“已播”，改用本机语音把这句念出来
+                        $segText = [string]$script:ttsSegs[$next]
+                        if ($segText) {
+                            try {
+                                Speak-Sapi $segText
+                                Write-Err ('TTS-SAPI-FALLBACK reason=play-fail len=' + $segText.Length)
+                                $script:playUntil = (Get-Date).AddSeconds([Math]::Max(2.0, $segText.Length * 0.18))
+                                $script:speakEndAt = $script:playUntil
+                            } catch { Complete-TtsSegment }
+                        } else { Complete-TtsSegment }
+                    }
                 } else {
                     $script:ttsSegPlayed[$next] = $true
                 }
@@ -381,7 +412,11 @@ $script:ttsTimer.Add_Tick({
     try { [void]$ps.EndInvoke($h) } catch { Write-Err ('TTS-JOIN-ERR ' + $_.Exception.Message) }
     try { $ps.Dispose() } catch { }
     try {
-        if ((Test-Path $mp3) -and (Get-Item $mp3).Length -gt 2000) { Play-TtsFile $mp3 $v }
-        else { Speak-Sapi $tx }
+        $played = $false
+        if ((Test-Path $mp3) -and (Get-Item $mp3).Length -gt 2000) { $played = Play-TtsFile $mp3 $v }
+        if (-not $played -and $tx) {
+            # 合成成功但播不出来（典型：机器上没有 ffmpeg，手里只有 mp3）→ 用本机语音念，别让整条回复静音
+            try { Speak-Sapi $tx; Write-Err ('TTS-SAPI-FALLBACK reason=thread-play-fail len=' + $tx.Length) } catch { }
+        }
     } catch { Write-Err ('TTS-DONE-ERR ' + $_.Exception.Message) }
 })
