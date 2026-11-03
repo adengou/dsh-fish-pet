@@ -1192,7 +1192,11 @@ $timer.Add_Tick({
                         break
                     }
                     if ($text -match '对联|对个对子|出个上联') {
-                        Invoke-CultureCouplet | Out-Null
+                        # 抽出上联：冒号/是/为 之后的内容
+                        $up = ''
+                        if ($text -match '[:：是]\s*(.+)$') { $up = $matches[1] }
+                        elseif ($text -match '(?:对联|对子)\s*(.+)$') { $up = $matches[1] }
+                        Invoke-CultureCouplet $up | Out-Null
                         Write-Err 'CULTURE-INTENT couplet'
                         break
                     }

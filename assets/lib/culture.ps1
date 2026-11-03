@@ -18,18 +18,6 @@ $script:CultureAllusions = @(
 )
 
 # 名句对：都是传世名句的原句，不是自拟
-$script:CultureCouplets = @(
-    @{ up = '海内存知己'; down = '天涯若比邻'; src = '王勃《送杜少府之任蜀州》' },
-    @{ up = '欲穷千里目'; down = '更上一层楼'; src = '王之涣《登鹳雀楼》' },
-    @{ up = '野火烧不尽'; down = '春风吹又生'; src = '白居易《赋得古原草送别》' },
-    @{ up = '两个黄鹂鸣翠柳'; down = '一行白鹭上青天'; src = '杜甫《绝句》' },
-    @{ up = '会当凌绝顶'; down = '一览众山小'; src = '杜甫《望岳》' },
-    @{ up = '山重水复疑无路'; down = '柳暗花明又一村'; src = '陆游《游山西村》' },
-    @{ up = '大漠孤烟直'; down = '长河落日圆'; src = '王维《使至塞上》' },
-    @{ up = '落霞与孤鹜齐飞'; down = '秋水共长天一色'; src = '王勃《滕王阁序》' },
-    @{ up = '春潮带雨晚来急'; down = '野渡无人舟自横'; src = '韦应物《滁州西涧》' },
-    @{ up = '千山鸟飞绝'; down = '万径人踪灭'; src = '柳宗元《江雪》' }
-)
 
 function Invoke-CultureAllusion {
     try {
@@ -43,14 +31,38 @@ function Invoke-CultureAllusion {
     } catch { Write-Err ('CULTURE-ERR ' + $_.Exception.Message); return $false }
 }
 
-function Invoke-CultureCouplet {
+
+function Invoke-CultureCouplet([string]$upper = '') {
+    # 实时创作：调模型对下联（原创），不套古人现成句子
     try {
-        if (-not $script:CultureCouplets -or $script:CultureCouplets.Count -eq 0) { return $false }
-        $one = $script:CultureCouplets[(Get-Random -Maximum $script:CultureCouplets.Count)]
-        $say = ('出个上联：' + $one.up + '。主人对得上吗？答案是——' + $one.down + '，出自' + $one.src + '。')
+        $upper = ([string]$upper).Trim()
+        if ($upper) { $upper = $upper.Trim([char]0xFF1A, [char]0x003A, [char]0xFF0C, [char]0x002C, [char]0x0020) }
+        if (-not $upper) { try { Show-Bubble '主人出个上联，本鱼来对～' } catch { }; return $true }
+        $key = Get-ApiKey
+        if (-not $key) { try { Show-Bubble '本鱼没钥匙，对不出来…' } catch { }; return $false }
+        $sys = '你是会作对联的小鱼。规则：只输出一句下联，不加解释；字数必须与上联完全相同；词性对仗；平仄尽量相反；内容通顺有意境；必须原创，不得套用古人现成句子。'
+        $msgs = @(
+            @{ role = 'system'; content = $sys },
+            @{ role = 'user'; content = ('上联：' + $upper) }
+        )
+        $body = @{ model = 'deepseek-flash'; messages = $msgs; max_tokens = 60; temperature = 0.95; thinking = @{ type = 'disabled' } } | ConvertTo-Json -Depth 6
+        $http = New-Object System.Net.Http.HttpClient
+        $http.Timeout = [TimeSpan]::FromSeconds(30)
+        $http.DefaultRequestHeaders.Authorization = New-Object System.Net.Http.Headers.AuthenticationHeaderValue('Bearer', $key)
+        $content = New-Object System.Net.Http.StringContent($body, [Text.Encoding]::UTF8, 'application/json')
+        $resp = $http.PostAsync('https://api.deepseek.com/chat/completions', $content).GetAwaiter().GetResult()
+        $json = $resp.Content.ReadAsStringAsync().GetAwaiter().GetResult()
+        $obj = $null
+        try { $obj = $json | ConvertFrom-Json } catch { }
+        $lower = ''
+        try { $lower = [string]$obj.choices[0].message.content } catch { }
+        $lower = ($lower -replace '[\r\n]+', ' ').Trim()
+        $lower = $lower.Trim([char]0xFF1A, [char]0x003A, [char]0x0022, [char]0x3002)
+        if (-not $lower) { try { Show-Bubble '这会儿想不出来，等下再对～' } catch { }; return $false }
+        $say = ('上联：' + $upper + '。下联：' + $lower + '。这是本鱼原创的。')
         try { Show-Bubble $say } catch { }
         try { Speak-Text $say } catch { }
-        Write-Err ('CULTURE-COUPLET ' + $one.up)
+        Write-Err ('CULTURE-COUPLET ' + $upper + ' -> ' + $lower)
         return $true
     } catch { Write-Err ('CULTURE-ERR ' + $_.Exception.Message); return $false }
 }

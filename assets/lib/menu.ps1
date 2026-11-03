@@ -97,12 +97,13 @@ $menu.Items.Add($miBriefRecent) | Out-Null
 $menu.Items.Add((New-Object System.Windows.Forms.ToolStripSeparator)) | Out-Null
 $miDictate = $menu.Items.Add('口述公文：开始')
 $miDsh = $menu.Items.Add('交给 DSH 助手…')
-$miStory = $menu.Items.Add('讲个故事')
 $miRemind = $menu.Items.Add('加个提醒…')
 $miRemindList = $menu.Items.Add('提醒清单…')
 $menu.Items.Add((New-Object System.Windows.Forms.ToolStripSeparator)) | Out-Null
 $miCulture = New-Object System.Windows.Forms.ToolStripMenuItem('文化气')
 $menu.Items.Add($miCulture) | Out-Null
+$miCulStory = $miCulture.DropDownItems.Add('讲个故事')
+$miCulStory.Add_Click({ try { Start-Story '' | Out-Null } catch { } })
 $miCulAllusion = $miCulture.DropDownItems.Add('讲个典故')
 $miCulAllusion.Add_Click({ try { Invoke-CultureAllusion | Out-Null } catch { } })
 $miCulCouplet = $miCulture.DropDownItems.Add('出个对联')
