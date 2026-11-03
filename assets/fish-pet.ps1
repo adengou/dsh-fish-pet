@@ -855,7 +855,7 @@ $form.Add_MouseUp({
 })
 # 右键菜单：延迟到鼠标事件之后再弹出，避免"闪退"（事件循环里 Show 会被立刻关掉）
 $script:menuHold = $false   # 菜单打开期间冻结游动与置顶
-$menu.Add_Closed({ $script:menuHold = $false; try { if ($script:menuResume) { $timer.Start(); $script:menuResume = $false } } catch { }; Write-Err 'MENU-CLOSED' })
+$menu.Add_Closed({ $script:menuHold = $false; Write-Err 'MENU-CLOSED' })
 $script:menuResume = $false
 $script:menuTimer = New-Object System.Windows.Forms.Timer
 $script:menuTimer.Interval = 120
@@ -870,7 +870,7 @@ $script:menuTimer.Add_Tick({
         try { $miQuit.Enabled = -not ($script:storyPlaying -or ($script:storyQueue -and $script:storyQueue.Count -gt 0)) } catch { }
         try { $miGrowth.Text = Get-GrowthText } catch { }
         $menu.Show($script:menuScreenPt)
-    } catch { Write-Err 'MENU-SHOW-ERR'; try { if ($script:menuResume) { $timer.Start(); $script:menuResume = $false }; $script:menuHold = $false } catch { } }
+    } catch { Write-Err 'MENU-SHOW-ERR'; $script:menuHold = $false }
 })
 $form.Add_MouseUp({
     param($s, $e)
@@ -881,7 +881,6 @@ $form.Add_MouseUp({
             if ($storyBusy) { Show-Bubble '正在讲故事，讲完再聊～'; return }
         } catch { }
         $script:menuHold = $true
-        if ($timer.Enabled) { $timer.Stop(); $script:menuResume = $true }
         Write-Err 'MENU-HOLD-ON'
         $script:menuScreenPt = [System.Windows.Forms.Cursor]::Position
         $script:menuTimer.Start()
