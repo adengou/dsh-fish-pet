@@ -1205,6 +1205,12 @@ $timer.Add_Tick({
                             break
                         }
                     }
+                    # 说书：连载式讲书（与「民间故事」区别开）
+                    if ($text -match '说书|讲书|接着讲|继续讲') {
+                        Start-Story '' | Out-Null
+                        Write-Err ('STORY-INTENT')
+                        break
+                    }
                     # 民间故事：讲个民间故事 / 讲个风物传说
                     if ($text -match '民间故事|讲个传说|风物传说|幻想故事|生活故事') {
                         $tc = ''

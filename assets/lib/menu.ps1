@@ -102,7 +102,7 @@ $miRemindList = $menu.Items.Add('提醒清单…')
 $menu.Items.Add((New-Object System.Windows.Forms.ToolStripSeparator)) | Out-Null
 $miCulture = New-Object System.Windows.Forms.ToolStripMenuItem('文化气')
 $menu.Items.Add($miCulture) | Out-Null
-$miCulStory = $miCulture.DropDownItems.Add('讲个故事')
+$miCulStory = $miCulture.DropDownItems.Add('说书（连载）')
 $miCulStory.Add_Click({ try { Start-Story '' | Out-Null } catch { } })
 $miCulTale = $miCulture.DropDownItems.Add('讲个民间故事')
 $miCulTale.Add_Click({ try { Invoke-Tale '' | Out-Null } catch { } })
