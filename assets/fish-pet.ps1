@@ -1190,8 +1190,20 @@ $timer.Add_Tick({
                     # 文化气：讲典故 / 对名句
                     if ($text -match '典故|讲个故事里的事|说说典故') {
                         Invoke-CultureAllusion | Out-Null
-                        Write-Err 'CULTURE-INTENT allusion'
+                        Write-Err ('CULTURE-INTENT allusion')
                         break
+                    }
+                    # 成语辨析：XX什么意思 / 什么叫XX / 成语XX
+                    if ($text -match '什么意思|啥意思|是啥意思|怎么讲|什么叫|请教一下') {
+                        $idi = ''
+                        if ($text -match '([\u4e00-\u9fa5]{2,8})(?:是什么意思|什么意思|啥意思|怎么讲)') { $idi = $matches[1] }
+                        elseif ($text -match '什么叫([\u4e00-\u9fa5]{2,8})') { $idi = $matches[1] }
+                        if ($idi) {
+                            $idi = $idi -replace "是$", ""
+                            Invoke-IdiomExplain $idi | Out-Null
+                            Write-Err ('IDIOM-INTENT [' + $idi + ']')
+                            break
+                        }
                     }
                     if ($text -match '对联|对个对子|出个上联') {
                         # 抽出上联：冒号/是/为 之后的内容

@@ -20,6 +20,7 @@ $script:CultureAllusions = @(
 # 已讲过的典故（持久化，讲完一整轮才重置）
 $script:CultureSeen = @()
 $script:CultureSeenPath = $null
+$script:CultureUntil = $null   # 这条典故讲到什么时候为止
 
 function Get-CultureSeenPath {
     if ($script:CultureSeenPath) { return $script:CultureSeenPath }
@@ -86,6 +87,11 @@ Load-CultureData
 function Invoke-CultureAllusion {
     try {
         if (-not $script:CultureAllusions -or $script:CultureAllusions.Count -eq 0) { return $false }
+        # 上一条还没讲完就不接新活，等它讲完（避免讲到一半被掐断）
+        if ($script:CultureUntil -and (Get-Date) -lt $script:CultureUntil) {
+            Write-Err ('CULTURE-BUSY 还剩 ' + [int](($script:CultureUntil - (Get-Date)).TotalSeconds) + ' 秒')
+            return $true
+        }
         Load-CultureSeen
         $seen = @($script:CultureSeen)
         $pool = @($script:CultureAllusions | Where-Object { $seen -notcontains $_.name })
@@ -102,6 +108,8 @@ function Invoke-CultureAllusion {
         $say = ('讲个典故——' + $one.name + '，出自' + $one.src + '。' + $one.text)
         try { Show-Bubble $say } catch { }
         try { Speak-Text $say } catch { }
+        # 记下这条要讲多久（中文 TTS 约每字 0.17 秒，再留 3 秒缓冲）
+        $script:CultureUntil = (Get-Date).AddSeconds([Math]::Max(8, $say.Length * 0.17 + 3))
         Write-Err ('CULTURE-ALLUSION ' + $one.name + ' 剩余未讲=' + ($pool.Count - 1) + $(if ($reset) { ' [新一轮]' } else { '' }))
         return $true
     } catch { Write-Err ('CULTURE-ERR ' + $_.Exception.Message); return $false }
@@ -140,4 +148,60 @@ function Invoke-CultureCouplet([string]$upper = '') {
         Write-Err ('CULTURE-COUPLET ' + $upper + ' -> ' + $lower)
         return $true
     } catch { Write-Err ('CULTURE-ERR ' + $_.Exception.Message); return $false }
+}
+
+
+# ---------- 成语辨析（来源：主人提供的《成语1265个》易错表，仅有释义与易错点，无典籍出处）----------
+$script:CultureIdioms = @()
+$script:IdiomDataLoaded = $false
+$script:IdiomUntil = $null
+
+function Load-IdiomData {
+    if ($script:IdiomDataLoaded) { return }
+    $script:IdiomDataLoaded = $true
+    try {
+        $base = $null
+        try { $base = $script:FishAssets } catch { }
+        if (-not $base) { try { $base = $PSScriptRoot } catch { } }
+        if (-not $base) { $base = Join-Path $env:USERPROFILE '.dsh\profiles\web
+ode_modules\dsh-fish-petssets' }
+        $p = Join-Path $base 'data\culture\idioms.json'
+        if (-not (Test-Path $p)) {
+            $alt = Join-Path (Split-Path -Parent $PSScriptRoot) 'data\culture\idioms.json'
+            if (Test-Path $alt) { $p = $alt }
+        }
+        if (Test-Path $p) {
+            $arr = (Get-Content $p -Raw -Encoding UTF8) | ConvertFrom-Json
+            $script:CultureIdioms = @($arr)
+            Write-Err ('IDIOM-DATA ' + $script:CultureIdioms.Count)
+        }
+    } catch { Write-Err ('IDIOM-DATA-ERR ' + $_.Exception.Message) }
+}
+
+function Find-Idiom([string]$name) {
+    if (-not $name) { return $null }
+    Load-IdiomData
+    foreach ($x in $script:CultureIdioms) {
+        if ([string]$x.name -eq $name) { return $x }
+    }
+    return $null
+}
+
+function Invoke-IdiomExplain([string]$name = '') {
+    try {
+        if ($script:IdiomUntil -and (Get-Date) -lt $script:IdiomUntil) { return $true }
+        Load-IdiomData
+        if ($script:CultureIdioms.Count -eq 0) { return $false }
+        $one = $null
+        if ($name) { $one = Find-Idiom $name }
+        if (-not $one) { $one = $script:CultureIdioms[(Get-Random -Maximum $script:CultureIdioms.Count)] }
+        $say = ('成语辨析——' + $one.name + '：' + $one.mean)
+        if ($one.wrong) { $say += (' 易错点：' + $one.wrong) }
+        $say += ' 这条只有释义，不出自某部典籍。'
+        try { Show-Bubble $say } catch { }
+        try { Speak-Text $say } catch { }
+        $script:IdiomUntil = (Get-Date).AddSeconds([Math]::Max(8, $say.Length * 0.17 + 3))
+        Write-Err ('IDIOM-EXPLAIN 请求=[' + $name + '] 命中=' + $one.name)
+        return $true
+    } catch { Write-Err ('IDIOM-ERR ' + $_.Exception.Message); return $false }
 }
