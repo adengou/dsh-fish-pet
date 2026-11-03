@@ -739,7 +739,10 @@ function Open-Chat {
 # 鱼 -> DSH 转交任务模块，实现在 lib\dsh.ps1
 . (Join-Path (Split-Path -Parent $PSCommandPath) 'lib\dsh.ps1')
 # 说书模块，实现在 lib\story.ps1
-. (Join-Path (Split-Path -Parent $PSCommandPath) 'lib\story.ps1')
+. (Join-Path (Split-Path -Parent $PSCommandPath) 'lib\story.ps1')
+
+# 文化气（讲典故 / 对名句），实现在 lib\culture.ps1
+. (Join-Path (Split-Path -Parent $PSCommandPath) 'lib\culture.ps1')
 # 成长系统
 . (Join-Path (Split-Path -Parent $PSCommandPath) 'lib\growth.ps1')
 # 鱼粮账本
@@ -1181,6 +1184,17 @@ $timer.Add_Tick({
                     # 弹琴意图：命中曲库就本地合成播放，不走对话模型
                     if ($text -match '别弹|不要弹|停止|安静|安静点|闭嘴|stop') {
                         if (Stop-Music) { break }
+                    }
+                    # 文化气：讲典故 / 对名句
+                    if ($text -match '典故|讲个故事里的事|说说典故') {
+                        Invoke-CultureAllusion | Out-Null
+                        Write-Err 'CULTURE-INTENT allusion'
+                        break
+                    }
+                    if ($text -match '对联|对个对子|出个上联') {
+                        Invoke-CultureCouplet | Out-Null
+                        Write-Err 'CULTURE-INTENT couplet'
+                        break
                     }
                     if ($text -match '弹|演奏|唱首|唱个|来首曲子|music|play') {
                         if (Request-Music $text) { break }

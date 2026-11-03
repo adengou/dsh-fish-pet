@@ -101,6 +101,12 @@ $miStory = $menu.Items.Add('讲个故事')
 $miRemind = $menu.Items.Add('加个提醒…')
 $miRemindList = $menu.Items.Add('提醒清单…')
 $menu.Items.Add((New-Object System.Windows.Forms.ToolStripSeparator)) | Out-Null
+$miCulture = New-Object System.Windows.Forms.ToolStripMenuItem('文化气')
+$menu.Items.Add($miCulture) | Out-Null
+$miCulAllusion = $miCulture.DropDownItems.Add('讲个典故')
+$miCulAllusion.Add_Click({ try { Invoke-CultureAllusion | Out-Null } catch { } })
+$miCulCouplet = $miCulture.DropDownItems.Add('出个对联')
+$miCulCouplet.Add_Click({ try { Invoke-CultureCouplet | Out-Null } catch { } })
 $miClear  = $menu.Items.Add('清除记忆…')
 $miQuit   = $menu.Items.Add('让它游走（退出）')
 
