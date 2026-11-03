@@ -857,12 +857,18 @@ $script:menuTimer.Add_Tick({
         try { Update-MenuLang } catch { }
         try { $miBalance.Text = Get-BalanceText } catch { }
         try { Update-RecentBriefs } catch { }
+        try { $miQuit.Enabled = -not ($script:storyPlaying -or ($script:storyQueue -and $script:storyQueue.Count -gt 0)) } catch { }
         $menu.Show($script:menuScreenPt)
     } catch { Write-Err 'MENU-SHOW-ERR'; try { if ($script:menuResume) { $timer.Start(); $script:menuResume = $false }; $script:menuHold = $false } catch { } }
 })
 $form.Add_MouseUp({
     param($s, $e)
     if ($e.Button -eq [System.Windows.Forms.MouseButtons]::Right) {
+        # 故事播放/连播期间不弹菜单，防误触退出打断故事
+        try {
+            $storyBusy = $script:storyPlaying -and (($script:storyQueue -and $script:storyQueue.Count -gt 0) -or ($script:storyUntil -and ((Get-Date) -lt $script:storyUntil)))
+            if ($storyBusy) { Show-Bubble '正在讲故事，讲完再聊～'; return }
+        } catch { }
         $script:menuHold = $true
         if ($timer.Enabled) { $timer.Stop(); $script:menuResume = $true }
         Write-Err 'MENU-HOLD-ON'
@@ -1136,7 +1142,17 @@ $timer.Add_Tick({
                     $text = $parts[2].Trim()
                     if ($text -match '提醒我|记一下|别忘了|帮我记') { try { Create-ReminderFromText $text } catch { }; continue }
                     if ($text -match '让DSH|交给DSH|让DSH助手|让代理') { try { Send-DshTask $text } catch { }; continue }
-                    if ($text -match '讲个故事|讲故事|说书|讲聊斋|聊斋|接着讲|继续讲') { try { Start-Story $text } catch { }; continue }
+                    $storyHit = $text -match '讲个故事|讲故事|说书|讲聊斋|聊斋|接着讲|继续讲|三言二拍|讲个三言|喻世明言|警世通言|醒世恒言|初刻拍案|二刻拍案'
+                    if (-not $storyHit) {
+                        try {
+                            foreach ($bk in @($script:STORY_AUTHORS.Keys)) {
+                                $short = [string]$bk
+                                if ($short.Length -gt 2) { $short = $short.Substring(0, 2) }
+                                if ($short -and $text.Contains($short)) { $storyHit = $true; break }
+                            }
+                        } catch { }
+                    }
+                    if ($storyHit) { try { Start-Story $text } catch { }; continue }
                     if ($text -match '^(知道了|收到|好的|好，知道了|不用提醒了|行了)。?$') {
                         try {
                             $arr = @(Load-Notes)
@@ -1260,7 +1276,10 @@ $timer.Add_Tick({
             } catch { }
         }
 
-                # 截图问答：后台识图结果回收
+                # 说书整回连播：一段播完自动讲下一段
+        try { Invoke-StoryQueueTick } catch { }
+
+        # 截图问答：后台识图结果回收
         if ($script:visionPending) {
             $vp = $script:visionPending
             if (Test-Path $vp.out) {
