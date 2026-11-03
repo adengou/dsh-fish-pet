@@ -17,6 +17,32 @@ $script:CultureAllusions = @(
     @{ name = '望梅止渴'; src = '《世说新语·假谲》'; text = '曹操行军缺水，说前面有梅林，士兵想到酸梅就流口水，暂时解了渴。' }
 )
 
+# 外部数据：优先读 assets\data\culture\chengyu.json（可扩到几百条），读不到就用上面内置的
+function Load-CultureData {
+    if ($script:CultureDataLoading) { return }
+    if ($script:CultureDataLoaded) { return }
+    $script:CultureDataLoading = $true
+    try {
+        $p = Join-Path $script:FishAssets 'data\culture\chengyu.json'
+        if (Test-Path $p) {
+            $raw = Get-Content $p -Raw -Encoding UTF8
+            $arr = $raw | ConvertFrom-Json
+            $list = @()
+            foreach ($x in @($arr)) {
+                if ($x.name -and $x.src -and $x.text) {
+                    $list += @{ name = [string]$x.name; src = [string]$x.src; text = [string]$x.text }
+                }
+            }
+            if ($list.Count -gt 0) {
+                $script:CultureAllusions = $list
+                Write-Err ('CULTURE-DATA ' + $list.Count)
+            }
+        }
+    } catch { Write-Err ('CULTURE-DATA-ERR ' + $_.Exception.Message) }
+    finally { $script:CultureDataLoading = $false; $script:CultureDataLoaded = $true }
+}
+Load-CultureData
+
 # 名句对：都是传世名句的原句，不是自拟
 
 function Invoke-CultureAllusion {
