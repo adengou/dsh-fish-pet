@@ -738,6 +738,8 @@ function Open-Chat {
 . (Join-Path (Split-Path -Parent $PSCommandPath) 'lib\music.ps1')
 # 鱼 -> DSH 转交任务模块，实现在 lib\dsh.ps1
 . (Join-Path (Split-Path -Parent $PSCommandPath) 'lib\dsh.ps1')
+# 说书模块，实现在 lib\story.ps1
+. (Join-Path (Split-Path -Parent $PSCommandPath) 'lib\story.ps1')
 
 $script:chatTimer = New-Object System.Windows.Forms.Timer
 $script:chatTimer.Interval = 120
@@ -913,6 +915,7 @@ $miDictate.Add_Click({
 })
 
 $miDsh.Add_Click({ Show-DshTaskInput })
+$miStory.Add_Click({ Start-Story '' })
 
 $miRemind.Add_Click({ Show-Reminder })
 $miRemindList.Add_Click({ Show-ReminderList })
@@ -1133,6 +1136,7 @@ $timer.Add_Tick({
                     $text = $parts[2].Trim()
                     if ($text -match '提醒我|记一下|别忘了|帮我记') { try { Create-ReminderFromText $text } catch { }; continue }
                     if ($text -match '让DSH|交给DSH|让DSH助手|让代理') { try { Send-DshTask $text } catch { }; continue }
+                    if ($text -match '讲个故事|讲故事|说书|讲聊斋|聊斋|接着讲|继续讲') { try { Start-Story $text } catch { }; continue }
                     if ($text -match '^(知道了|收到|好的|好，知道了|不用提醒了|行了)。?$') {
                         try {
                             $arr = @(Load-Notes)

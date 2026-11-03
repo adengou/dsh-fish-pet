@@ -203,7 +203,7 @@ function Start-TtsWorker {
     } catch { Write-Err ('TTS-WORKER-ERR ' + $_.Exception.Message); return $false }
 }
 
-function Speak-Text([string]$text) {
+function Speak-Text([string]$text, [string]$rateHint = '') {
     if (-not $script:speakOn) { return }
     # 断网兜底：最近一次 edge 合成失败后 60 秒内直接用本机语音
     if ($script:ttsOffline -and $script:ttsOfflineAt -and ((Get-Date) - $script:ttsOfflineAt).TotalSeconds -lt 60) {
@@ -217,6 +217,7 @@ function Speak-Text([string]$text) {
         try {
             $spkLang = Get-TextLang $text
             if ($spkLang -eq 'en') { $vUse = $script:ttsVoiceEn; $rUse = $script:ttsRateEn; $pUse = $script:ttsPitchEn } else { $vUse = $script:ttsVoice; $rUse = $script:ttsRate; $pUse = $script:ttsPitch }
+            if ($rateHint) { $rUse = $rateHint }
             if (Start-TtsWorker) {
                 $script:ttsMode = 'worker'
                 $script:ttsVoiceUsed = $vUse

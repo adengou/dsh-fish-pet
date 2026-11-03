@@ -1,6 +1,6 @@
 {
     "name":  "dsh-fish-pet",
-    "version":  "0.2.42",
+    "version":  "0.2.43",
     "description":  "Desktop blue fish pet for DeepSeek Harness: per-pixel transparent WinForms window, text chat, and cloud speech-to-text voice conversation.",
     "type":  "module",
     "main":  "lib/index.js",
