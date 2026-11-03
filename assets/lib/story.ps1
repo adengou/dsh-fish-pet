@@ -187,9 +187,11 @@ function Speak-StoryChunk($pick, [bool]$isFirst) {
         $original = [string]$pick.text
         $prev = ''
         try { $prev = [string]$script:storyLastSpoken } catch { }
-        $spoken = Invoke-StoryLlm $bookName $title $original $prev $isLast
-        if ($spoken) { $script:storyLastSpoken = $spoken }
-        if (-not $spoken) { $spoken = $original }
+            # 2026-11-03 主人决定：不做白话改写，直接念原文（零 token、断网也能讲）
+            # 原 LLM 改写逻辑保留在 Invoke-StoryLlm（不再调用），以后要恢复改回下面一行即可：
+            #   $spoken = Invoke-StoryLlm $bookName $title $original $prev $isLast
+            $spoken = $original
+            if ($spoken) { $script:storyLastSpoken = $spoken }
         $authorName = ''
         try { if ($script:STORY_AUTHORS.ContainsKey($bookName)) { $authorName = [string]$script:STORY_AUTHORS[$bookName] } } catch { }
         $authorPart = if ($authorName) { '，' + $authorName + '著' } else { '' }
