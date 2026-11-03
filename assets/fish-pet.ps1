@@ -740,6 +740,8 @@ function Open-Chat {
 . (Join-Path (Split-Path -Parent $PSCommandPath) 'lib\dsh.ps1')
 # 说书模块，实现在 lib\story.ps1
 . (Join-Path (Split-Path -Parent $PSCommandPath) 'lib\story.ps1')
+# 成长系统
+. (Join-Path (Split-Path -Parent $PSCommandPath) 'lib\growth.ps1')
 
 $script:chatTimer = New-Object System.Windows.Forms.Timer
 $script:chatTimer.Interval = 120
@@ -772,11 +774,13 @@ $script:chatTimer.Add_Tick({
         }
         # 情绪：被夸冒爱心，被说胖就鼓起来
         if ($script:lastUser -match '乖|可爱|好鱼|棒|喜欢你|真聪明') {
+            try { Add-Growth 3 'praise' } catch { }
             $script:pulse = 1.18
             foreach ($dx in @(-24, 0, 24)) { $script:hearts += @{ dx = $dx; age = 0.0; life = 1.4 } }
         } elseif ($script:lastUser -match '胖|肥|圆|丑') {
             $script:pulse = 1.26
         }
+        try { Add-Growth 1 'chat' } catch { }
         $script:lastReply = $reply
         Show-Bubble $reply
         Speak-Text $reply
@@ -858,6 +862,7 @@ $script:menuTimer.Add_Tick({
         try { $miBalance.Text = Get-BalanceText } catch { }
         try { Update-RecentBriefs } catch { }
         try { $miQuit.Enabled = -not ($script:storyPlaying -or ($script:storyQueue -and $script:storyQueue.Count -gt 0)) } catch { }
+        try { $miGrowth.Text = Get-GrowthText } catch { }
         $menu.Show($script:menuScreenPt)
     } catch { Write-Err 'MENU-SHOW-ERR'; try { if ($script:menuResume) { $timer.Start(); $script:menuResume = $false }; $script:menuHold = $false } catch { } }
 })
@@ -877,7 +882,7 @@ $form.Add_MouseUp({
     }
 })
 
-$miFeed.Add_Click({ Invoke-Feed })
+$miFeed.Add_Click({ Invoke-Feed; try { Add-Growth 2 'feed' } catch { } })
 $miWake.Add_Click({
     $script:autoOn = -not $script:autoOn
     if ($script:autoOn) { Start-Auto; try { Update-MenuLang } catch { } } else { try { if ($script:rec) { $script:rec.RecognizeAsyncCancel() } } catch { }; BackToWake; try { Update-MenuLang } catch { } }
@@ -1278,6 +1283,8 @@ $timer.Add_Tick({
 
                 # 说书整回连播：一段播完自动讲下一段
         try { Invoke-StoryQueueTick } catch { }
+        # 成长：陪伴时长
+        try { Invoke-GrowthTick } catch { }
 
         # 截图问答：后台识图结果回收
         if ($script:visionPending) {

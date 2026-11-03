@@ -147,7 +147,8 @@ function Start-Chat([string]$text) {
         }
     }
 
-    $msgs = @(@{ role = 'system'; content = $sys })
+    try { $gs = Get-GrowthStage; $sys = $sys + '。你现在和主人的关系阶段是「' + $gs.name + '」：' + $gs.desc + '。语气要符合这个阶段。' } catch { }
+$msgs = @(@{ role = 'system'; content = $sys })
     if ($replyLang -eq 'en') {
         # 英文模式只带英文历史，避免被中文上下文带回去
         $histEn = @($script:chatHistory | Where-Object { (Get-TextLang ([string]$_.content)) -eq 'en' -and ([string]$_.content) -notmatch 'Fatty Fish' })

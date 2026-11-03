@@ -88,6 +88,7 @@ function Invoke-StoryLlm([string]$bookName, [string]$title, [string]$original, [
             $script:storyHttp = New-Object System.Net.Http.HttpClient
             $script:storyHttp.Timeout = [TimeSpan]::FromSeconds(60)
         }
+        try { $gs = Get-GrowthStage; $sys = '（你现在和主人的关系阶段是「' + $gs.name + '」：' + $gs.desc + '。讲故事时可以带上这个阶段的语气。）' } catch { }
         $sys = '你是一位说书人，用成人评书的腔调讲' + $bookName + '里的《' + $title + '》，讲给主人听：' +
                '① 忠于原文情节，不添油加醋、不编造原文没有的人物和情节；' +
                '② 用评书口吻（列位看官、不料、谁知、这一下可好），语气稳重、有韵味、有起伏；不要用【话说】【且说】【话说主人】开头（已经报过书名了），直接讲正文，不要卖萌、不要撒娇、不要用网络用语；' +
@@ -151,6 +152,7 @@ function Speak-StoryChunk($pick, [bool]$isFirst) {
         $script:storyProgress[(Get-StoryKey $pick)] = $true
         Save-StoryProgress
         Write-Err ('STORY ' + $bookName + ' | ' + $title + ' piece=' + $piece + '/' + $total + ' llm=' + [bool]$spoken)
+        try { Add-Growth 1 'story' } catch { }
     } catch { Write-Err ('STORY-SPEAK-ERR ' + $_.Exception.Message) }
 }
 
