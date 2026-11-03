@@ -122,6 +122,7 @@ try {
 } catch { }
 if (-not $script:petVersion) { $script:petVersion = 'dev' }
 $menu.Items.Add((New-Object System.Windows.Forms.ToolStripSeparator)) | Out-Null
+$miFishFood = $menu.Items.Add('鱼粮账本')
 $miGrowth = $menu.Items.Add('成长：--')
 $miGrowth.Enabled = $false
 $miVersion = $menu.Items.Add('版本：v' + $script:petVersion)

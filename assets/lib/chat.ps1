@@ -148,6 +148,7 @@ function Start-Chat([string]$text) {
     }
 
     try { $gs = Get-GrowthStage; $sys = $sys + '。你现在和主人的关系阶段是「' + $gs.name + '」：' + $gs.desc + '。语气要符合这个阶段。' } catch { }
+$sys = $sys + '。你很珍惜主人的 token 钱：回答要简短精炼（平时一两句就够），不废话、不铺垫，除非主人明确要详细内容。'
 $msgs = @(@{ role = 'system'; content = $sys })
     if ($replyLang -eq 'en') {
         # 英文模式只带英文历史，避免被中文上下文带回去

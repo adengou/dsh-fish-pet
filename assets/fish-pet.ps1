@@ -742,6 +742,8 @@ function Open-Chat {
 . (Join-Path (Split-Path -Parent $PSCommandPath) 'lib\story.ps1')
 # 成长系统
 . (Join-Path (Split-Path -Parent $PSCommandPath) 'lib\growth.ps1')
+# 鱼粮账本
+. (Join-Path (Split-Path -Parent $PSCommandPath) 'lib\fishfood.ps1')
 
 $script:chatTimer = New-Object System.Windows.Forms.Timer
 $script:chatTimer.Interval = 120
@@ -755,6 +757,8 @@ $script:chatTimer.Add_Tick({
         $script:chatTask = $null
         $reply = ''
         if ($jsonText) { try { $reply = [string]($jsonText | ConvertFrom-Json).choices[0].message.content } catch { } }
+        # 鱼粮账本：记录聊天消耗
+        try { if ($jsonText) { $u = ($jsonText | ConvertFrom-Json).usage; if ($u) { Add-FishFoodTokens 'chat' ([int]$u.prompt_tokens) ([int]$u.completion_tokens) } } } catch { }
         if ($out -and $out.Count -gt 0) { $reply = [string]$out[0] }
         if ([string]::IsNullOrWhiteSpace($reply)) { $reply = '（吐了个泡泡）没听清，再说一遍嘛' }
         $reply = $reply.Trim()
@@ -781,6 +785,8 @@ $script:chatTimer.Add_Tick({
             $script:pulse = 1.26
         }
         try { Add-Growth 1 'chat' } catch { }
+        # 鱼粮来之不易：吃多了小声提醒少吃点
+        try { $ffMood = Get-FishFoodMood; if ($ffMood) { $reply = $reply + $ffMood } } catch { }
         $script:lastReply = $reply
         Show-Bubble $reply
         Speak-Text $reply
@@ -927,6 +933,7 @@ $miDictate.Add_Click({
 
 $miDsh.Add_Click({ Show-DshTaskInput })
 $miStory.Add_Click({ Start-Story '' })
+$miFishFood.Add_Click({ Show-FishFood })
 
 $miRemind.Add_Click({ Show-Reminder })
 $miRemindList.Add_Click({ Show-ReminderList })
@@ -1145,6 +1152,7 @@ $timer.Add_Tick({
                         continue
                     }
                     $text = $parts[2].Trim()
+                    if ($text -match '鱼粮|账本|吃了多少|花多少钱|鱼粮账本') { try { Show-FishFood } catch { }; continue }
                     if ($text -match '提醒我|记一下|别忘了|帮我记') { try { Create-ReminderFromText $text } catch { }; continue }
                     if ($text -match '让DSH|交给DSH|让DSH助手|让代理') { try { Send-DshTask $text } catch { }; continue }
                     $storyHit = $text -match '讲个故事|讲故事|说书|讲聊斋|聊斋|接着讲|继续讲|三言二拍|讲个三言|喻世明言|警世通言|醒世恒言|初刻拍案|二刻拍案'

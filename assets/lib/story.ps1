@@ -80,9 +80,51 @@ function Load-StoryChunks {
 }
 
 # ---------- 改写（鱼自己的话，成人评书腔） ----------
+# 说书改写缓存：讲过的段直接复用，不再花 token
+$script:storyCachePath = Join-Path $DataDir 'story_cache.json'
+$script:storyCache = $null
+$script:storyCacheDirty = $false
+
+function Get-StoryCacheKey([string]$bookName, [string]$title, [string]$original) {
+    try {
+        $bytes = [Text.Encoding]::UTF8.GetBytes($bookName + '|' + $title + '|' + $original)
+        $sha = [Security.Cryptography.SHA256]::Create()
+        $hash = $sha.ComputeHash($bytes)
+        $sha.Dispose()
+        return ([BitConverter]::ToString($hash) -replace '-', '').Substring(0, 16)
+    } catch { return ($bookName + '|' + $title + '|' + [string]$original.Length) }
+}
+
+function Load-StoryCache {
+    if ($null -ne $script:storyCache) { return }
+    $script:storyCache = @{}
+    try {
+        if (Test-Path $script:storyCachePath) {
+            $obj = [IO.File]::ReadAllText($script:storyCachePath, [Text.Encoding]::UTF8) | ConvertFrom-Json
+            if ($obj) {
+                foreach ($p in $obj.PSObject.Properties) { $script:storyCache[$p.Name] = [string]$p.Value }
+            }
+        }
+    } catch { }
+}
+
+function Save-StoryCache {
+    try {
+        if (-not $script:storyCacheDirty) { return }
+        $obj = @{}
+        foreach ($k in $script:storyCache.Keys) { $obj[[string]$k] = [string]$script:storyCache[$k] }
+        $json = $obj | ConvertTo-Json -Compress
+        if ($json -eq 'null') { $json = '{}' }
+        [IO.File]::WriteAllText($script:storyCachePath, $json, (New-Object Text.UTF8Encoding($false)))
+        $script:storyCacheDirty = $false
+    } catch { }
+}
+
 function Invoke-StoryLlm([string]$bookName, [string]$title, [string]$original, [string]$prev = '', [bool]$isLast = $false) {
     try {
         $key = Get-ApiKey
+        # 缓存命中：讲过的段直接复用，不花 token
+        try { Load-StoryCache; $ck0 = Get-StoryCacheKey $bookName $title $original; if ($script:storyCache.ContainsKey($ck0)) { Write-Err ('STORY-CACHE-HIT ' + $title); return [string]$script:storyCache[$ck0] } } catch { }
         if (-not $key) { return $null }
         if ($null -eq $script:storyHttp) {
             $script:storyHttp = New-Object System.Net.Http.HttpClient
@@ -112,7 +154,13 @@ function Invoke-StoryLlm([string]$bookName, [string]$title, [string]$original, [
         $resp = $script:storyHttp.SendAsync($req).GetAwaiter().GetResult()
         $jsonText = $resp.Content.ReadAsStringAsync().GetAwaiter().GetResult()
         $reply = [string](($jsonText | ConvertFrom-Json).choices[0].message.content)
-        if ($reply) { return $reply.Trim() }
+        # 鱼粮账本：记录说书消耗
+        try { $u = ($jsonText | ConvertFrom-Json).usage; if ($u) { Add-FishFoodTokens 'story' ([int]$u.prompt_tokens) ([int]$u.completion_tokens) } } catch { }
+        if ($reply) {
+            $trimmed = $reply.Trim()
+            try { Load-StoryCache; $ck = Get-StoryCacheKey $bookName $title $original; $script:storyCache[$ck] = $trimmed; $script:storyCacheDirty = $true; Save-StoryCache } catch { }
+            return $trimmed
+        }
     } catch { Write-Err ('STORY-LLM-ERR ' + $_.Exception.Message) }
     return $null
 }
