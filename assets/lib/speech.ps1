@@ -205,6 +205,12 @@ function Start-TtsWorker {
 
 function Speak-Text([string]$text) {
     if (-not $script:speakOn) { return }
+    # 断网兜底：最近一次 edge 合成失败后 60 秒内直接用本机语音
+    if ($script:ttsOffline -and $script:ttsOfflineAt -and ((Get-Date) - $script:ttsOfflineAt).TotalSeconds -lt 60) {
+        try { [IO.File]::WriteAllText((Join-Path $DataDir 'asr.talking'), '1') } catch { }
+        try { Speak-Sapi $text; Write-Err ('TTS-SAPI-OFFLINE len=' + $text.Length) } catch { }
+        return
+    }
     $talkFile = Join-Path $DataDir 'asr.talking'
     try { [IO.File]::WriteAllText($talkFile, '1') } catch { }
     if ($script:ttsEngine -eq 'edge') {
@@ -294,6 +300,7 @@ $script:ttsTimer.Add_Tick({
                     # worker 已读完请求文件，删掉避免累积（压测里 460+ 个残留）
                     try { Remove-Item -LiteralPath (Join-Path $env:TEMP ('fish-tts-req-' + $rid + '.json')) -Force -ErrorAction SilentlyContinue } catch { }
                     $script:ttsSegDone[$i] = $true
+                    $script:ttsOffline = $false
                 }
                 else {
                     Write-Err ('TTS-SEG-FAIL idx=' + $i)
@@ -311,6 +318,13 @@ $script:ttsTimer.Add_Tick({
                         $script:ttsSegDone[$i] = $false
                     } else {
                         $script:ttsSegDone[$i] = $true
+                        # 断网/edge 不可用：用本机语音把这段念出来，别让鱼哑巴
+                        $segText = [string]$script:ttsSegs[$i]
+                        if ($segText) {
+                            try { Speak-Sapi $segText; Write-Err ('TTS-SAPI-FALLBACK len=' + $segText.Length) } catch { }
+                        }
+                        $script:ttsOffline = $true
+                        $script:ttsOfflineAt = Get-Date
                     }
                 }
             }

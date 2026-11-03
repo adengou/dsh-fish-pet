@@ -783,7 +783,11 @@ $script:chatTimer.Add_Tick({
     } catch {
         $script:chatBusy = $false
         $script:chatTimer.Stop()
+        # 断网兜底：聊天接口连不上时，用本机语音说一声，别让鱼一声不吭
+        $script:ttsOffline = $true
+        $script:ttsOfflineAt = Get-Date
         Show-Bubble '（呛了口水）刚才没接通…再试一次？'
+        try { Speak-Sapi '刚才没接通，再试一次？' } catch { }
         Write-Err 'CHAT-ERR'
     }
 })
