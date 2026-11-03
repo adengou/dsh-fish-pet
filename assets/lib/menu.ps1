@@ -104,6 +104,8 @@ $miCulture = New-Object System.Windows.Forms.ToolStripMenuItem('文化气')
 $menu.Items.Add($miCulture) | Out-Null
 $miCulStory = $miCulture.DropDownItems.Add('讲个故事')
 $miCulStory.Add_Click({ try { Start-Story '' | Out-Null } catch { } })
+$miCulTale = $miCulture.DropDownItems.Add('讲个民间故事')
+$miCulTale.Add_Click({ try { Invoke-Tale '' | Out-Null } catch { } })
 $miCulAllusion = $miCulture.DropDownItems.Add('讲个典故')
 $miCulAllusion.Add_Click({ try { Invoke-CultureAllusion | Out-Null } catch { } })
 $miCulIdiom = $miCulture.DropDownItems.Add('成语辨析')

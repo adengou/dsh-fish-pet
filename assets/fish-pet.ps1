@@ -1205,6 +1205,16 @@ $timer.Add_Tick({
                             break
                         }
                     }
+                    # 民间故事：讲个民间故事 / 讲个风物传说
+                    if ($text -match '民间故事|讲个传说|风物传说|幻想故事|生活故事') {
+                        $tc = ''
+                        foreach ($k in @('风物传说','幻想故事','官吏传说','生活故事','武侠传说','文人传说','案例传说','神灵传说','名医传说','艺人传说','始祖传说')) {
+                            if ($text -like ('*' + $k + '*')) { $tc = $k; break }
+                        }
+                        Invoke-Tale $tc | Out-Null
+                        Write-Err ('TALE-INTENT [' + $tc + ']')
+                        break
+                    }
                     if ($text -match '对联|对个对子|出个上联') {
                         # 抽出上联：冒号/是/为 之后的内容
                         $up = ''

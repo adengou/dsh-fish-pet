@@ -205,3 +205,67 @@ function Invoke-IdiomExplain([string]$name = '') {
         return $true
     } catch { Write-Err ('IDIOM-ERR ' + $_.Exception.Message); return $false }
 }
+
+
+# ---------- 民间故事（来源：中国古代民间故事长编，696 则，文言原样）----------
+$script:CultureTales = @()
+$script:TaleDataLoaded = $false
+$script:TaleUntil = $null
+$script:TaleSeen = @()
+
+function Load-TaleData {
+    if ($script:TaleDataLoaded) { return }
+    $script:TaleDataLoaded = $true
+    try {
+        $base = $null
+        try { $base = $script:FishAssets } catch { }
+        if (-not $base) { try { $base = $PSScriptRoot } catch { } }
+        if (-not $base) { $base = Join-Path $env:USERPROFILE '.dsh\profiles\web\node_modules\dsh-fish-pet\assets' }
+        $p = Join-Path $base 'data\culture\minsu.json'
+        if (-not (Test-Path $p)) {
+            $alt = Join-Path (Split-Path -Parent $PSScriptRoot) 'data\culture\minsu.json'
+            if (Test-Path $alt) { $p = $alt }
+        }
+        if (Test-Path $p) {
+            $arr = (Get-Content $p -Raw -Encoding UTF8) | ConvertFrom-Json
+            $script:CultureTales = @($arr | Where-Object { $_.text })
+            Write-Err ('TALE-DATA ' + $script:CultureTales.Count)
+        }
+    } catch { Write-Err ('TALE-DATA-ERR ' + $_.Exception.Message) }
+}
+
+function Get-TaleSeenPath {
+    $dir = $null
+    try { $dir = Resolve-PetStore } catch { }
+    if (-not $dir) { $dir = Join-Path $env:USERPROFILE '.dsh\fish-pet' }
+    return (Join-Path $dir 'tale-seen.json')
+}
+
+function Invoke-Tale([string]$cat = '') {
+    try {
+        if ($script:TaleUntil -and (Get-Date) -lt $script:TaleUntil) {
+            Write-Err 'TALE-BUSY'
+            return $true
+        }
+        Load-TaleData
+        if ($script:CultureTales.Count -eq 0) { return $false }
+        $pool = @($script:CultureTales)
+        if ($cat) { $h = @($pool | Where-Object { [string]$_.cat -like ('*' + $cat + '*') }); if ($h.Count -gt 0) { $pool = $h } }
+        try {
+            $sf = Get-TaleSeenPath
+            if (Test-Path $sf) { $script:TaleSeen = @((Get-Content $sf -Raw -Encoding UTF8 | ConvertFrom-Json) | ForEach-Object { [string]$_ }) }
+        } catch { }
+        $un = @($pool | Where-Object { $script:TaleSeen -notcontains ([string]$_.title) })
+        if ($un.Count -eq 0) { $script:TaleSeen = @(); $un = $pool }
+        $one = $un[(Get-Random -Maximum $un.Count)]
+        $script:TaleSeen = @($script:TaleSeen) + @([string]$one.title)
+        try { (($script:TaleSeen) | ConvertTo-Json -Compress) | Set-Content -Path (Get-TaleSeenPath) -Encoding UTF8 } catch { }
+        $body = ([string]$one.text) -replace '\s+', ' '
+        $say = ('讲个民间故事——' + $one.title + '，出自《' + $one.book + '》。' + $body)
+        try { Show-Bubble $say } catch { }
+        try { Speak-Text $say } catch { }
+        $script:TaleUntil = (Get-Date).AddSeconds([Math]::Max(12, $say.Length * 0.17 + 4))
+        Write-Err ('TALE-START ' + $one.title + ' 出处=' + $one.book + ' 类别=' + $one.cat + ' 字数=' + $body.Length)
+        return $true
+    } catch { Write-Err ('TALE-ERR ' + $_.Exception.Message); return $false }
+}
