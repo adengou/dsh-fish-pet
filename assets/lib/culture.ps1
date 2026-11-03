@@ -1,9 +1,9 @@
 ﻿# ============================================================
-# culture.ps1 — 文化气：讲典故 + 对名句
-# 依赖（主脚本提供）：Show-Bubble / Speak-Text / Write-Err
+# culture.ps1 — 文化气：讲典故（261 条，带记忆不重复）+ 实时对对联
+# 依赖（主脚本提供）：Show-Bubble / Speak-Text / Write-Err / Get-ApiKey / Resolve-PetStore
 # ============================================================
 
-# 典故：只收出处明确、经得起核对的
+# 内置兜底（JSON 读不到时才用）
 $script:CultureAllusions = @(
     @{ name = '刻舟求剑'; src = '《吕氏春秋·察今》'; text = '楚人过江，剑掉进水里，他在船舷上刻个记号，说剑是从这儿掉的。船走了，剑没走，等靠岸再按记号下水找，当然找不到。' },
     @{ name = '守株待兔'; src = '《韩非子·五蠹》'; text = '宋国农夫见兔子撞树桩死了，从此放下农具守着树桩，指望再捡一只。兔子没再来，田也荒了。' },
@@ -17,13 +17,52 @@ $script:CultureAllusions = @(
     @{ name = '望梅止渴'; src = '《世说新语·假谲》'; text = '曹操行军缺水，说前面有梅林，士兵想到酸梅就流口水，暂时解了渴。' }
 )
 
-# 外部数据：优先读 assets\data\culture\chengyu.json（可扩到几百条），读不到就用上面内置的
-function Load-CultureData {
-    if ($script:CultureDataLoading) { return }
-    if ($script:CultureDataLoaded) { return }
-    $script:CultureDataLoading = $true
+# 已讲过的典故（持久化，讲完一整轮才重置）
+$script:CultureSeen = @()
+$script:CultureSeenPath = $null
+
+function Get-CultureSeenPath {
+    if ($script:CultureSeenPath) { return $script:CultureSeenPath }
+    $dir = $null
+    try { $dir = Resolve-PetStore } catch { }
+    if (-not $dir) { $dir = Join-Path $env:USERPROFILE '.dsh\fish-pet' }
+    if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
+    $script:CultureSeenPath = Join-Path $dir 'culture-seen.json'
+    return $script:CultureSeenPath
+}
+
+function Load-CultureSeen {
     try {
-        $p = Join-Path $script:FishAssets 'data\culture\chengyu.json'
+        $p = Get-CultureSeenPath
+        if (Test-Path $p) {
+            $raw = Get-Content $p -Raw -Encoding UTF8
+            $arr = $raw | ConvertFrom-Json
+            $script:CultureSeen = @($arr | ForEach-Object { [string]$_ } | Where-Object { $_ })
+        }
+    } catch { $script:CultureSeen = @() }
+}
+
+function Save-CultureSeen {
+    try {
+        $p = Get-CultureSeenPath
+        ($script:CultureSeen | ConvertTo-Json -Compress) | Set-Content -Path $p -Encoding UTF8
+    } catch { }
+}
+
+# 外部数据：优先读 assets\data\culture\chengyu.json（261 条）
+function Load-CultureData {
+    if ($script:CultureDataLoaded) { return }
+    $script:CultureDataLoaded = $true
+    try {
+        $base = $null
+        try { $base = $script:FishAssets } catch { }
+        if (-not $base) { try { $base = $PSScriptRoot } catch { } }
+        if (-not $base) { $base = Join-Path $env:USERPROFILE '.dsh\profiles\web\node_modules\dsh-fish-pet\assets' }
+        $p = Join-Path $base 'data\culture\chengyu.json'
+        if (-not (Test-Path $p)) {
+            $alt = Join-Path (Split-Path -Parent $PSScriptRoot) 'data\culture\chengyu.json'
+            if (Test-Path $alt) { $p = $alt }
+        }
         if (Test-Path $p) {
             $raw = Get-Content $p -Raw -Encoding UTF8
             $arr = $raw | ConvertFrom-Json
@@ -39,24 +78,34 @@ function Load-CultureData {
             }
         }
     } catch { Write-Err ('CULTURE-DATA-ERR ' + $_.Exception.Message) }
-    finally { $script:CultureDataLoading = $false; $script:CultureDataLoaded = $true }
+    Load-CultureSeen
 }
-Load-CultureData
 
-# 名句对：都是传世名句的原句，不是自拟
+Load-CultureData
 
 function Invoke-CultureAllusion {
     try {
         if (-not $script:CultureAllusions -or $script:CultureAllusions.Count -eq 0) { return $false }
-        $one = $script:CultureAllusions[(Get-Random -Maximum $script:CultureAllusions.Count)]
+        Load-CultureSeen
+        $seen = @($script:CultureSeen)
+        $pool = @($script:CultureAllusions | Where-Object { $seen -notcontains $_.name })
+        $reset = $false
+        if ($pool.Count -eq 0) {
+            $script:CultureSeen = @()
+            Save-CultureSeen
+            $pool = @($script:CultureAllusions)
+            $reset = $true
+        }
+        $one = $pool[(Get-Random -Maximum $pool.Count)]
+        $script:CultureSeen = @($script:CultureSeen) + @($one.name)
+        Save-CultureSeen
         $say = ('讲个典故——' + $one.name + '，出自' + $one.src + '。' + $one.text)
         try { Show-Bubble $say } catch { }
         try { Speak-Text $say } catch { }
-        Write-Err ('CULTURE-ALLUSION ' + $one.name)
+        Write-Err ('CULTURE-ALLUSION ' + $one.name + ' 剩余未讲=' + ($pool.Count - 1) + $(if ($reset) { ' [新一轮]' } else { '' }))
         return $true
     } catch { Write-Err ('CULTURE-ERR ' + $_.Exception.Message); return $false }
 }
-
 
 function Invoke-CultureCouplet([string]$upper = '') {
     # 实时创作：调模型对下联（原创），不套古人现成句子

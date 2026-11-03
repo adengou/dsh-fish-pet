@@ -739,9 +739,12 @@ function Open-Chat {
 # 鱼 -> DSH 转交任务模块，实现在 lib\dsh.ps1
 . (Join-Path (Split-Path -Parent $PSCommandPath) 'lib\dsh.ps1')
 # 说书模块，实现在 lib\story.ps1
-. (Join-Path (Split-Path -Parent $PSCommandPath) 'lib\story.ps1')
-
-# 文化气（讲典故 / 对名句），实现在 lib\culture.ps1
+. (Join-Path (Split-Path -Parent $PSCommandPath) 'lib\story.ps1')
+
+
+
+# 文化气（讲典故 / 对名句），实现在 lib\culture.ps1
+
 . (Join-Path (Split-Path -Parent $PSCommandPath) 'lib\culture.ps1')
 # 成长系统
 . (Join-Path (Split-Path -Parent $PSCommandPath) 'lib\growth.ps1')
@@ -934,7 +937,6 @@ $miDictate.Add_Click({
 })
 
 $miDsh.Add_Click({ Show-DshTaskInput })
-$miStory.Add_Click({ Start-Story '' })
 $miFishFood.Add_Click({ Show-FishFood })
 
 $miRemind.Add_Click({ Show-Reminder })
